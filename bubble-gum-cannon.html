@@ -1,0 +1,1904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bubble Gum Cannon — Blast Radius Sizing Tool</title>
+<style>
+  /* ---------- Palette (reference instance, light + dark selected separately) ---------- */
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;   /* round / gum wad */
+    --series-2:       #eb6834;   /* drone           */
+    --series-3:       #1baf7a;   /* gumballs        */
+    --status-good:    #0ca30c;
+    --status-warning: #fab219;
+    --status-critical:#d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  /* Ink is set here, not on body: the custom properties are declared on
+     .viz-root, so a var() reference on body would resolve against nothing. */
+  .viz-root { background: var(--page); color: var(--text-primary); min-height: 100vh; }
+
+  header.app {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 20px 28px 14px; border-bottom: 1px solid var(--border);
+  }
+  header.app h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  header.app .sub { font-size: 13px; color: var(--text-secondary); margin: 0; }
+  header.app .spacer { flex: 1 1 auto; }
+
+  button.ghost {
+    font: inherit; font-size: 12px; padding: 5px 11px; cursor: pointer;
+    background: var(--surface-1); color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  button.ghost:hover { color: var(--text-primary); }
+
+  .layout { display: grid; grid-template-columns: 310px minmax(0,1fr); gap: 0; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  /* ---------- Controls ---------- */
+  aside {
+    padding: 18px 20px 40px; border-right: 1px solid var(--border);
+    position: sticky; top: 0; max-height: 100vh; overflow-y: auto;
+  }
+  @media (max-width: 900px) { aside { position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--border); } }
+
+  .group { margin-bottom: 20px; }
+  .group > h2 {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--text-muted); margin: 0 0 9px;
+  }
+  .ctl { margin-bottom: 11px; }
+  .ctl .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+  .ctl label { font-size: 12px; color: var(--text-secondary); }
+  .ctl .val {
+    font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-primary);
+    display: flex; align-items: baseline; gap: 3px;
+  }
+  .ctl input[type=number] {
+    font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; width: 68px; text-align: right;
+    padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface-1); color: var(--text-primary);
+  }
+  .ctl .unit { font-size: 11px; color: var(--text-muted); min-width: 32px; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--series-1); margin: 0; height: 16px; }
+
+  .chips { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+  .chips button {
+    font: inherit; font-size: 10.5px; padding: 3px 8px; cursor: pointer;
+    background: var(--surface-1); color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 5px;
+  }
+  .chips button:hover { color: var(--text-primary); }
+  .chips button[aria-pressed="true"] { background: var(--series-1); color: #fff; border-color: var(--series-1); }
+
+  .derived { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--grid); }
+  .derived .d { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; margin-bottom: 5px; }
+  .derived .d span:first-child { color: var(--text-muted); }
+  .derived .d span:last-child { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 500; }
+  .derived .warn { font-size: 11px; color: var(--text-secondary); margin-top: 9px; line-height: 1.45; display: flex; gap: 6px; }
+  .derived .warn .ico { color: var(--status-warning); font-weight: 700; flex: 0 0 auto; }
+
+  .seg { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    flex: 1; font: inherit; font-size: 11.5px; padding: 6px 4px; cursor: pointer;
+    background: var(--surface-1); color: var(--text-secondary); border: none;
+    border-right: 1px solid var(--border);
+  }
+  .seg button:last-child { border-right: none; }
+  .seg button[aria-pressed="true"] { background: var(--series-1); color: #fff; }
+
+  /* ---------- Main ---------- */
+  main { padding: 20px 28px 56px; min-width: 0; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 18px;
+  }
+  .card > h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 2px; }
+  .card > p.note { font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; line-height: 1.45; }
+
+  /* Hero */
+  .hero { display: flex; align-items: flex-end; gap: 26px; flex-wrap: wrap; }
+  .hero .figure { font-size: 54px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
+  .hero .figure .u { font-size: 22px; font-weight: 500; color: var(--text-secondary); margin-left: 4px; }
+  .hero .caption { font-size: 12.5px; color: var(--text-secondary); max-width: 400px; line-height: 1.5; padding-bottom: 4px; }
+
+  .banner {
+    display: flex; align-items: flex-start; gap: 9px; margin-top: 15px;
+    font-size: 12.5px; line-height: 1.5; padding: 9px 12px; border-radius: 7px;
+    border: 1px solid var(--border); color: var(--text-primary);
+  }
+  .banner .ico { flex: 0 0 auto; font-weight: 700; font-size: 13px; line-height: 1.45; }
+  .banner.good     .ico { color: var(--status-good); }
+  .banner.warning  .ico { color: var(--status-warning); }
+  .banner.critical .ico { color: var(--status-critical); }
+  .banner b { font-weight: 600; }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 18px; }
+  .tile { background: var(--surface-1); padding: 13px 15px; }
+  .tile .lab { font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }
+  .tile .num { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
+  .tile .num .u { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+
+  /* Charts */
+  .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .legend { display: flex; gap: 14px; align-items: center; }
+  .legend .item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-secondary); }
+  .legend .key { width: 14px; height: 2px; border-radius: 1px; }
+  svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+  svg.chart text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .tick { font-size: 10px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .axis-title { font-size: 10.5px; fill: var(--text-secondary); }
+  .dlabel { font-size: 10.5px; fill: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dlabel-sub { font-size: 10px; fill: var(--text-secondary); }
+
+  .tip {
+    position: fixed; pointer-events: none; z-index: 30; opacity: 0; transition: opacity .09s;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px;
+    padding: 8px 10px; font-size: 11.5px; box-shadow: 0 4px 14px rgba(0,0,0,.13); min-width: 132px;
+  }
+  .tip .hd { color: var(--text-muted); font-size: 10.5px; margin-bottom: 5px; font-variant-numeric: tabular-nums; }
+  .tip .r { display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+  .tip .k { width: 11px; height: 2px; border-radius: 1px; flex: 0 0 auto; }
+  .tip .v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+  .tip .n { color: var(--text-secondary); font-size: 11px; }
+
+  /* Live sim */
+  canvas.sim {
+    display: block; width: 100%; height: auto; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--page);
+  }
+  .simbar {
+    display: flex; align-items: center; gap: 13px; margin-top: 12px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--text-secondary);
+  }
+  .simbar label { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .simbar input[type=range] { accent-color: var(--series-1); height: 16px; }
+  .simbar .scrub { flex: 1 1 220px; min-width: 150px; }
+  .simbar .hud { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .simbar .hud b { color: var(--text-primary); font-weight: 600; }
+
+  /* Tables */
+  table.data { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+  table.data caption { text-align: left; font-size: 11.5px; color: var(--text-secondary); padding-bottom: 8px; }
+  table.data th, table.data td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  table.data th { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data tr.hi td { font-weight: 600; }
+  .tablewrap { margin-top: 14px; border-top: 1px solid var(--grid); padding-top: 12px; max-height: 260px; overflow-y: auto; }
+  .tablewrap[hidden] { display: none; }
+
+  footer.app { padding: 0 28px 44px; font-size: 11.5px; color: var(--text-muted); line-height: 1.6; max-width: 900px; }
+  footer.app code { font-size: 11px; background: var(--surface-1); padding: 1px 4px; border-radius: 3px; border: 1px solid var(--border); }
+  footer.app h4 { font-size: 12px; color: var(--text-secondary); margin: 16px 0 5px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+
+<header class="app">
+  <h1>Bubble Gum Cannon — Blast Radius Sizing</h1>
+  <p class="sub">Drag-corrected intercept of a straight-closing quadcopter</p>
+  <span class="spacer"></span>
+  <button class="ghost" id="themeBtn" type="button">Dark mode</button>
+</header>
+
+<div class="layout">
+
+  <aside id="controls"></aside>
+
+  <main>
+
+    <!-- HERO -->
+    <section class="card">
+      <h3>Required blast radius</h3>
+      <p class="note">The smallest gum blast radius that still reaches the drone at closest approach, given the aim scheme, drag, and your effective hit radius.</p>
+      <div class="hero">
+        <div class="figure"><span id="heroVal">—</span><span class="u">m</span></div>
+        <div class="caption" id="heroCap"></div>
+      </div>
+      <div class="banner" id="banner" hidden><span class="ico" id="bannerIco"></span><span id="bannerTxt"></span></div>
+    </section>
+
+    <!-- TILES -->
+    <div class="tiles" id="tiles"></div>
+
+    <!-- LIVE SIM -->
+    <section class="card">
+      <div class="chart-head">
+        <div>
+          <h3>Live engagement</h3>
+          <p class="note" style="margin-bottom:0">The round flies out under real aerodynamic drag, the fuse trips at your
+            proximity radius, and the shell of gumballs expands into the incoming drone. Distances are 1:1; gumball
+            markers carry a minimum size so they stay visible when zoomed out. Scrub, or hit <b>Zoom to burst</b>.</p>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="key" style="background:var(--series-1)"></span>Round</span>
+          <span class="item"><span class="key" style="background:var(--series-2)"></span>Drone</span>
+          <span class="item"><span class="key" style="background:var(--series-3)"></span>Gumballs</span>
+        </div>
+      </div>
+      <canvas class="sim" id="simCanvas" width="1520" height="980"
+              role="img" aria-label="Animated replay of the round flying out, bursting, and the gumball shell reaching the drone"></canvas>
+      <div class="simbar">
+        <button class="ghost" type="button" id="playBtn">▶ Play</button>
+        <button class="ghost" type="button" id="replayBtn">↻ Replay</button>
+        <button class="ghost" type="button" id="zoomBtn" aria-pressed="false">Zoom to burst</button>
+        <label>Slow-mo <input type="range" id="speedRng" min="1" max="60" step="1" value="10" style="width:90px"></label>
+        <span class="hud" id="speedLab"></span>
+        <input type="range" class="scrub" id="scrubRng" min="0" max="100" step="1" value="0" aria-label="Scrub through the engagement">
+        <span class="hud" id="simHud"></span>
+      </div>
+    </section>
+
+    <!-- TRAJECTORY -->
+    <section class="card">
+      <div class="chart-head">
+        <div>
+          <h3>Engagement geometry</h3>
+          <p class="note" style="margin-bottom:0">True 1:1 scale — the gap drawn at closest approach is the real miss distance.</p>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="key" style="background:var(--series-1)"></span>Gum wad</span>
+          <span class="item"><span class="key" style="background:var(--series-2)"></span>Drone</span>
+        </div>
+      </div>
+      <svg class="chart" id="trajChart" viewBox="0 0 760 340" role="img" aria-label="Gum wad and drone paths in the vertical plane, with closest approach marked"></svg>
+      <button class="ghost" type="button" id="trajTblBtn" style="margin-top:10px">Show data table</button>
+      <div class="tablewrap" id="trajTbl" hidden></div>
+    </section>
+
+    <!-- BURST & DISPERSAL -->
+    <section class="card">
+      <h3>Burst &amp; dispersal — where the blast radius actually comes from</h3>
+      <p class="note">The cloud is a thin shell of discrete gumballs, not a solid sphere. The drone is hit when the shell
+        <em>sweeps past</em> it and a ball happens to land — so the number you can design to is the radius at which you
+        expect exactly one ball on the drone: <code>R<sub>eff</sub> = r<sub>hit</sub>·√N / 2</code>.</p>
+      <div class="hero" style="margin-bottom:4px">
+        <div class="figure" style="font-size:38px"><span id="reffVal">—</span><span class="u">m</span></div>
+        <div class="caption" id="reffCap"></div>
+      </div>
+      <div class="banner" id="fragBanner" hidden><span class="ico" id="fragIco"></span><span id="fragTxt"></span></div>
+      <button class="ghost" type="button" id="fuseOptBtn" style="margin-top:12px">Set fuse trigger radius to the optimum</button>
+      <div class="tiles" id="fragTiles" style="margin-top:16px;margin-bottom:0"></div>
+      <div class="chart-head" style="margin-top:22px">
+        <div>
+          <h3 style="font-size:12.5px">Hit probability vs. gumball size</h3>
+          <p class="note" style="margin-bottom:0">Coverage goes as 1/d³ while reach only goes as d — so smaller balls win hard,
+            and ballistics stops being the binding constraint long before manufacturing does.</p>
+        </div>
+      </div>
+      <svg class="chart" id="ballChart" viewBox="0 0 760 270" role="img" aria-label="Probability of at least one gumball hit as a function of gumball diameter"></svg>
+      <button class="ghost" type="button" id="ballTblBtn" style="margin-top:10px">Show data table</button>
+      <div class="tablewrap" id="ballTbl" hidden></div>
+    </section>
+
+    <!-- SWEEP -->
+    <section class="card">
+      <div class="chart-head">
+        <div>
+          <h3>Required blast radius vs. engagement range</h3>
+          <p class="note" style="margin-bottom:0">Every other parameter held at its current value. This is the design curve — read your radius budget off it.</p>
+        </div>
+      </div>
+      <svg class="chart" id="sweepChart" viewBox="0 0 760 300" role="img" aria-label="Required blast radius as a function of ground range to the drone"></svg>
+      <button class="ghost" type="button" id="sweepTblBtn" style="margin-top:10px">Show data table</button>
+      <div class="tablewrap" id="sweepTbl" hidden></div>
+    </section>
+
+    <!-- MONTE CARLO -->
+    <section class="card">
+      <h3>Shot dispersion — will it actually work?</h3>
+      <p class="note">Real cannons scatter. Aim error and muzzle-velocity spread turn the miss distance into a
+        distribution, and each shot then gets its own coverage draw at its own miss. This is the system-level
+        answer, not the single-nominal-shot answer. Seeded, so the result is reproducible.</p>
+      <div class="hero" style="margin-bottom:4px">
+        <div class="figure" style="font-size:38px"><span id="mcRate">—</span><span class="u">%</span></div>
+        <div class="caption" id="mcCap"></div>
+      </div>
+      <div class="tiles" id="mcTiles" style="margin-top:16px;margin-bottom:18px"></div>
+      <svg class="chart" id="mcChart" viewBox="0 0 760 280" role="img" aria-label="Histogram of miss distance across simulated shots"></svg>
+      <button class="ghost" type="button" id="mcTblBtn" style="margin-top:10px">Show data table</button>
+      <div class="tablewrap" id="mcTbl" hidden></div>
+    </section>
+
+    <!-- CONFIDENCE -->
+    <section class="card">
+      <h3>Lognormal blast radius — sizing for confidence</h3>
+      <p class="note">Your blast radius is random, so "big enough" is a probability. Because <code>ln R ~ N(μ, σ²)</code>, the median radius you must design to is the required radius inflated by <code>e<sup>σ·z<sub>p</sub></sup></code>.</p>
+      <table class="data" id="confTbl"></table>
+    </section>
+
+  </main>
+</div>
+
+<footer class="app">
+  <h4>Payload &amp; packing</h4>
+  The round is a sphere of diameter D loaded with gumballs, so only the packing fraction φ of its
+  volume is gum — the rest is interstitial void. Mass is derived, not entered:
+  <code>m = φ·(π/6)D³·ρ<sub>gum</sub> + m<sub>casing</sub></code>, and the gumball count is
+  <code>N = φ·(D/d<sub>ball</sub>)³</code>. Presets are the standard regimes: simple cubic 0.524,
+  random loose 0.555, random close packing 0.640 (what you get pouring gumballs into a tube),
+  and ordered FCC/HCP 0.7405 (the theoretical maximum, which you will not hit by pouring).
+  This coupling is the point — growing D raises payload as D³ but frontal area only as D², so with
+  the casing ignored the drag group falls off as
+  <code>k = 0.75·ρ·C<sub>d</sub> / (D·φ·ρ<sub>gum</sub>)</code>: bigger and denser-packed rounds are
+  ballistically better even though they are draggier in absolute terms. A fixed casing mass breaks
+  that cleanly at the small end — below roughly 30 mm the casing outweighs the gum and the round
+  behaves like dead weight, so the trend is not monotonic there. Your real ceiling is bore diameter
+  and what the cannon can accelerate, not the physics.
+
+  <h4>Drag law</h4>
+  In <code>C_d(Re)</code> mode the drag coefficient is the Morrison (2013) smooth-sphere correlation,
+  re-evaluated at every RK4 stage from the instantaneous Reynolds number <code>Re = vD/ν</code>. It
+  reproduces both the subcritical plateau (C<sub>d</sub> ≈ 0.4–0.5) and the drag crisis, where C<sub>d</sub>
+  collapses past Re ≈ 2.6×10⁵ as the boundary layer trips turbulent. This is not academic for you: a 60 mm
+  round at 60 m/s sits at Re ≈ 2.4×10⁵, right on the shoulder of that collapse, where the real C<sub>d</sub>
+  is nearer 0.33 than 0.47. The integrated effect on the miss is smaller than that 30% gap suggests —
+  about 3–6%, since the round spends most of its flight slower and back on the plateau. Caveat worth stating
+  in your writeup: the correlation is for a <em>smooth</em> sphere. Surface roughness moves the crisis to
+  lower Re and softens it, so if your round is textured, measure rather than trust this curve.
+  Gumballs sit at Re ≈ 2×10⁴, safely subcritical, where C<sub>d</sub> is flat.
+
+  <h4>Wind</h4>
+  Drag acts on velocity relative to the <em>air</em>, so wind enters the acceleration and nowhere else.
+  Head/tailwind and updraft are modelled; a crosswind is not, because it would push the round out of the
+  vertical plane the whole solver is built on and make this a 3D problem. Wind is the single most
+  influential environmental term here — a ±10 m/s head/tailwind swings the required blast radius by
+  roughly ±25%, more than any payload tuning you can do.
+
+  <h4>Shot dispersion</h4>
+  Each Monte Carlo shot perturbs launch elevation by a Gaussian aim error and muzzle velocity by a Gaussian
+  percentage, re-integrates the full trajectory, then draws that shot's own coverage outcome at its own miss
+  distance. The RNG is seeded, so results are reproducible.
+  <br><br>
+  <b>A counterintuitive result worth knowing, with the crossover pinned down.</b> Because λ ∝ 1/miss² is
+  convex, scatter is not purely harmful: shots that land closer gain more probability than shots that land
+  wider lose. <b>R<sub>eff</sub> is the break-even point.</b> With the nominal miss <em>outside</em>
+  R<sub>eff</sub>, dispersion helps — measured over 6,000 shots per point, expected hit rate rises from
+  56.06% at zero dispersion to 56.69% at 5 mrad and 59.20% at 20 mrad. Move the nominal miss <em>inside</em>
+  R<sub>eff</sub> (drop to 22 m range) and the sign flips: 90.74% → 88.19% at 8 mrad → 81.00% at 20 mrad.
+  At realistic dispersion the effect is small either way (under a tenth of a point at 3 mrad), so do not
+  design around it — but do not be surprised when tightening your aim fails to help a system that is
+  already missing wide. Fix the miss first; the scatter is second-order.
+
+  <h4>Burst &amp; dispersal</h4>
+  The cloud is a thin <em>shell</em> of N discrete gumballs, not a filled sphere, so the drone is not hit by
+  the blast "reaching" it — it is hit when the shell sweeps past and a ball lands. A single ball under
+  quadratic drag obeys <code>v(r) = v<sub>e</sub>·e<sup>−kr</sup></code> and
+  <code>r(t) = ln(1+k·v<sub>e</sub>t)/k</code> with
+  <code>k = 0.75·ρ·C<sub>d</sub>/(d<sub>ball</sub>·ρ<sub>gum</sub>)</code>, which gives a fuse lead time of
+  <code>t* = (e<sup>k·m</sup>−1)/(k·v<sub>e</sub>)</code> to put the shell at the miss distance m exactly at
+  closest approach. Coverage there is <code>λ = N·r<sub>hit</sub>²/(4m²)</code> and
+  <code>P(hit) = 1 − e<sup>−λ</sup></code> (Poisson, balls assumed uniform over the shell). Setting λ = 1
+  defines the effective blast radius <code>R<sub>eff</sub> = r<sub>hit</sub>·√N/2 =
+  (r<sub>hit</sub>/2)·√φ·(D/d<sub>ball</sub>)<sup>1.5</sup></code> — the radius at which you expect exactly
+  one ball on the target. Because λ ∝ 1/d³ while reach only ∝ d, smaller balls dominate: the ballistic
+  floor here is a 0.3 mm ball, so your real limit is how much gum a ball must carry to foul a rotor, not flight.
+  Shell asymmetry <em>is</em> captured, and falls out for free: each ball is integrated with its own total
+  velocity, so forward-ejected balls — which carry the round's speed on top of their ejection speed — see
+  far higher airspeed and shed it far faster than rearward ones. The cloud genuinely deforms.
+  Not modelled: ball–ball collisions during burst, spin and Magnus lift, and burster lobing. Uniform
+  ejection over the sphere is an idealisation; a real charge produces preferred directions.
+
+  <h4>The live sim</h4>
+  Not a cartoon — every gumball is integrated individually in 3D with RK4 under the same
+  <code>−g·ŷ − k|v|v</code> law as the round, using the ball's own drag group. Ejection directions come
+  from a Fibonacci sphere, so the spread is even and the replay is bit-identical every run rather than
+  reshuffling on each parameter nudge. Balls inherit the round's velocity at burst on top of their ejection
+  velocity. A ball counts as stuck when its centre passes within r<sub>hit</sub> of the drone centre, after
+  which it rides along with the drone. Up to 420 balls are simulated; above that the display is a subsample
+  and the HUD says so. Out-of-plane balls are faded by depth, and the aqua circle is the mean shell front
+  measured about the cloud's own centroid — not the burst point, since the cloud keeps the round's forward
+  velocity.
+  <br><br>
+  <b>Expect the sim to report slightly more hits than the closed form.</b> The λ formula treats the encounter
+  as a single instant, with the drone meeting a shell of radius m. The sim lets the drone fly <em>through</em>
+  the expanding shell over tens of milliseconds, sweeping a tube rather than presenting a disc, so it picks up
+  balls the snapshot calculation misses. Treat λ as a conservative lower bound and the sim as the better
+  estimate — and treat a single deterministic run as one sample, not a probability.
+
+  <h4>Model</h4>
+  Wad integrated with RK4 under gravity plus quadratic drag
+  <code>a = −g·ŷ − (½ρC<sub>d</sub>A/m)·|v|·v</code>, A = πD²/4. The drone flies a straight
+  constant-speed line from its start point to the muzzle, so it stays on the initial line of sight
+  for the whole engagement. Miss distance is the true closest approach between the two paths,
+  found by scanning the integration and refining parabolically. Required blast radius is
+  <code>max(0, CPA − r<sub>hit</sub>)</code>.
+
+  <h4>Assumptions worth stating in your writeup</h4>
+  No wind or crosswind. No lift/Magnus (the wad is not spinning). Constant air density.
+  The drone does not maneuver or react. Sphere drag coefficient is treated as constant, though
+  in reality C<sub>d</sub> varies with Reynolds number — at these speeds a smooth sphere sits near
+  0.47 but drops sharply through the drag crisis, so treat C<sub>d</sub> as a tunable you should
+  measure. Detonation is assumed to occur exactly at closest approach (a perfect proximity fuse);
+  any fuse delay adds miss distance on top of what this reports.
+
+  <h4>Why a faster drone is easier to hit</h4>
+  Because the drone closes along your line of sight, its speed does not create a lateral lead
+  error — it only shortens the time of flight, which means less time for drag and gravity to pull
+  the wad off the sight line. Closing speeds add: the intercept happens at roughly
+  <code>t ≈ R<sub>slant</sub> / (v₀ + v<sub>t</sub>)</code>.
+</footer>
+
+<div class="tip" id="tip"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ===================================================================
+   1. PARAMETERS — every number in the model is a variable here.
+   =================================================================== */
+const PARAMS = [
+  { g:"Engagement",   k:"d0",    l:"Ground range to drone",   u:"m",     min:3,    max:200, step:1,     v:30    },
+  { g:"Engagement",   k:"H0",    l:"Drone altitude",          u:"m",     min:0,    max:150, step:0.5,   v:20    },
+  { g:"Engagement",   k:"h0",    l:"Muzzle height",           u:"m",     min:0,    max:8,   step:0.1,   v:1.5   },
+  { g:"Engagement",   k:"vt",    l:"Drone closing speed",     u:"m/s",   min:0,    max:50,  step:0.5,   v:10    },
+
+  { g:"Cannon",       k:"v0",    l:"Muzzle velocity",         u:"m/s",   min:10,   max:400, step:1,     v:60    },
+
+  { g:"Projectile",   k:"dia",   l:"Round diameter",          u:"mm",    min:10,   max:200, step:1,     v:60    },
+  { g:"Projectile",   k:"dball", l:"Gumball diameter",        u:"mm",    min:2,    max:60,  step:0.5,   v:12    },
+  { g:"Projectile",   k:"phi",   l:"Packing fraction φ",      u:"",      min:0.30, max:0.74,step:0.005, v:0.64,
+    presets:[["Cubic",0.524],["Loose",0.555],["RCP",0.64],["FCC",0.7405]] },
+  { g:"Projectile",   k:"rhoGum",l:"Gum density",             u:"kg/m³", min:500,  max:1600,step:5,     v:1050  },
+  { g:"Projectile",   k:"mCase", l:"Casing / sabot mass",     u:"g",     min:0,    max:300, step:0.5,   v:15    },
+  { g:"Projectile",   k:"Cd",    l:"Drag coefficient",        u:"",      min:0,    max:1.5, step:0.01,  v:0.47  },
+
+  { g:"Burst & dispersal", k:"rfuse",  l:"Fuse trigger radius",    u:"m",   min:0.1, max:25,  step:0.05, v:2.35 },
+  { g:"Burst & dispersal", k:"tfuse",  l:"Fuse delay (latency)",   u:"ms",  min:0,   max:40,  step:0.1,  v:0    },
+  { g:"Burst & dispersal", k:"ve",     l:"Gumball ejection speed", u:"m/s", min:1,   max:250, step:1,    v:30   },
+  { g:"Burst & dispersal", k:"CdBall", l:"Gumball drag coeff.",    u:"",    min:0.05,max:1.5, step:0.01, v:0.47 },
+  { g:"Burst & dispersal", k:"vstick", l:"Min. sticking speed",    u:"m/s", min:0.5, max:60,  step:0.5,  v:5    },
+
+  { g:"Shot dispersion", k:"sigTheta", l:"Aim error σ",          u:"mrad", min:0, max:40,   step:0.1, v:3   },
+  { g:"Shot dispersion", k:"sigV0",    l:"Muzzle velocity σ",    u:"%",    min:0, max:15,   step:0.1, v:1.5 },
+  { g:"Shot dispersion", k:"nShots",   l:"Monte Carlo shots",    u:"",     min:50,max:3000, step:50,  v:400 },
+
+  { g:"Environment",  k:"rho",   l:"Air density",             u:"kg/m³", min:0,    max:1.5, step:0.005, v:1.225 },
+  { g:"Environment",  k:"windX", l:"Wind (+ = tailwind)",     u:"m/s",   min:-25,  max:25,  step:0.5,   v:0     },
+  { g:"Environment",  k:"windY", l:"Updraft (+ = rising)",    u:"m/s",   min:-15,  max:15,  step:0.5,   v:0     },
+  { g:"Environment",  k:"nu",    l:"Air kinematic viscosity", u:"µm²/s", min:5,    max:40,  step:0.1,   v:15.1  },
+  { g:"Environment",  k:"grav",  l:"Gravity",                 u:"m/s²",  min:0,    max:20,  step:0.01,  v:9.81  },
+
+  { g:"Hit criterion",k:"rhit",  l:"Effective hit radius",    u:"m",     min:0,    max:5,   step:0.05,  v:0.25  },
+
+  { g:"Blast radius", k:"medR",  l:"Median blast radius",     u:"m",     min:0.05, max:10,  step:0.05,  v:0.50  },
+  { g:"Blast radius", k:"sigma", l:"Lognormal σ (log-space)", u:"",      min:0.01, max:1.5, step:0.01,  v:0.35  },
+];
+
+const P = {}, SETTERS = {};
+PARAMS.forEach(p => P[p.k] = p.v);
+let AIM = "los";      // "los" = line of sight (no holdover) | "opt" = optimal elevation
+let CDMODE = "re";    // "re" = Reynolds-dependent Cd | "const" = fixed Cd
+
+/* ===================================================================
+   2. PHYSICS
+   =================================================================== */
+
+/**
+ * Payload build-up. The round is a sphere of diameter D filled with gumballs at
+ * packing fraction φ, so only φ of the round's volume is actually gum — the rest
+ * is interstitial void. Mass is DERIVED from this, never typed in, because the
+ * payload/drag trade is the whole point: a bigger round carries more gum but
+ * presents more frontal area.
+ */
+function payload(p) {
+  const D      = p.dia / 1000;                       // mm -> m
+  const dball  = p.dball / 1000;
+  const Vround = Math.PI / 6 * D * D * D;            // m³
+  const Vgum   = Vround * p.phi;                     // m³ of actual gum
+  const mGum   = Vgum * p.rhoGum;                    // kg
+  const mTot   = mGum + p.mCase / 1000;              // kg
+  const Vball  = Math.PI / 6 * dball * dball * dball;
+  const N      = Vball > 0 ? Vgum / Vball : 0;       // gumballs carried
+  const A      = Math.PI * D * D / 4;                // frontal area, m²
+  return { D, dball, Vround, Vgum, mGum, mTot, N, A, ratio: dball > 0 ? D / dball : Infinity };
+}
+
+/**
+ * Morrison (2013) smooth-sphere drag correlation, valid 0 < Re < 1e6.
+ * Reproduces the subcritical plateau (Cd ≈ 0.4–0.5) AND the drag crisis, where
+ * Cd collapses past Re ≈ 2.6e5 as the boundary layer trips turbulent. This
+ * matters here: a 60 mm round at 60 m/s sits at Re ≈ 2.4e5, right on the
+ * shoulder of that collapse, so a fixed Cd = 0.47 is simply the wrong number.
+ */
+function cdSphere(Re) {
+  if (!(Re > 0)) return 0;
+  const a = Re / 5, b = Re / 263000;
+  return 24 / Re
+       + (2.6 * a) / (1 + Math.pow(a, 1.52))
+       + (0.411 * Math.pow(b, -7.94)) / (1 + Math.pow(b, -8.00))
+       + Math.pow(Re, 0.80) / 461000;
+}
+
+// Everything a drag integration needs: geometry, air, wind, and the Cd policy.
+function makeCtx(p, D, AoverM, cd0) {
+  return { D, AoverM, rho: p.rho, nu: p.nu * 1e-6, cd0,
+           useRe: CDMODE === "re", wx: p.windX, wy: p.windY, g: p.grav };
+}
+function roundCtx(p) {
+  const pl = payload(p);
+  return makeCtx(p, pl.D, pl.mTot > 0 ? pl.A / pl.mTot : 0, p.Cd);
+}
+function ballCtx(p) {
+  const d = p.dball / 1000;
+  const A = Math.PI * d * d / 4, m = Math.PI / 6 * d * d * d * p.rhoGum;
+  return makeCtx(p, d, m > 0 ? A / m : 0, p.CdBall);
+}
+const cdOf = (c, sp) => (c.useRe && c.nu > 0) ? cdSphere(sp * c.D / c.nu) : c.cd0;
+const kOf  = (c, sp) => 0.5 * c.rho * cdOf(c, sp) * c.AoverM;
+
+// Drag acts on velocity RELATIVE TO THE AIR, so wind enters here and nowhere else.
+function deriv(s, c) {
+  const rx = s[2] - c.wx, ry = s[3] - c.wy;
+  const sp = Math.hypot(rx, ry);
+  const k = kOf(c, sp);
+  return [s[2], s[3], -k * sp * rx, -k * sp * ry - c.g];
+}
+
+// Instantaneous drag group, for display. Speed-dependent once Cd(Re) is on.
+function dragK(p, speed) { const c = roundCtx(p); return kOf(c, speed === undefined ? p.v0 : speed); }
+function ballK(p, speed) { const c = ballCtx(p);  return kOf(c, speed === undefined ? p.ve : speed); }
+
+/**
+ * Integrate the wad against the drone and return the closest approach.
+ * Geometry: muzzle at (0, h0). Drone starts at (d0, H0) and flies straight
+ * at the muzzle at speed vt, so it never leaves the initial line of sight.
+ */
+function simulate(p, theta, dt, keepPath) {
+  const C  = roundCtx(p);
+  const dz = p.H0 - p.h0;
+  const Rs = Math.hypot(p.d0, dz);            // slant range at trigger pull
+  if (Rs < 1e-9) return null;
+
+  const ux = -p.d0 / Rs, uy = -dz / Rs;       // unit vector drone -> muzzle
+  const droneAt = t => [ p.d0 + p.vt * t * ux, p.H0 + p.vt * t * uy ];
+
+  // Engagement window: until the drone arrives, or 25 s, whichever first.
+  const tArrive = p.vt > 1e-9 ? Rs / p.vt : Infinity;
+  const tMax    = Math.min(tArrive, 25);
+
+  let s = [0, p.h0, p.v0 * Math.cos(theta), p.v0 * Math.sin(theta)];
+  let t = 0;
+
+  const path  = keepPath ? [[0, p.h0]] : null;
+  const dpath = keepPath ? [[p.d0, p.H0]] : null;
+  const ptime = keepPath ? [0] : null;
+
+  let sPrev2 = Infinity, sPrev1 = Infinity;
+  let best = { sep: Math.hypot(p.d0 - 0, p.H0 - p.h0), t: 0, wad: [0, p.h0], drone: [p.d0, p.H0] };
+  let bestRaw = best.sep, bestT = 0, bestIdx = 0;
+  let refined = null;
+  let groundHit = false, step = 0;
+
+  while (t < tMax) {
+    // RK4
+    const a = deriv(s, C);
+    const s2 = s.map((x, i) => x + 0.5 * dt * a[i]);
+    const b  = deriv(s2, C);
+    const s3 = s.map((x, i) => x + 0.5 * dt * b[i]);
+    const c  = deriv(s3, C);
+    const s4 = s.map((x, i) => x + dt * c[i]);
+    const d  = deriv(s4, C);
+    const next = s.map((x, i) => x + (dt / 6) * (a[i] + 2 * b[i] + 2 * c[i] + d[i]));
+
+    // Stop at the ground, interpolating the crossing.
+    if (next[1] < 0 && s[1] >= 0) {
+      const f = s[1] / (s[1] - next[1]);
+      s = s.map((x, i) => x + f * (next[i] - x));
+      t += f * dt;
+      groundHit = true;
+    } else {
+      s = next;
+      t += dt;
+    }
+    step++;
+
+    const dp  = droneAt(t);
+    const sep = Math.hypot(s[0] - dp[0], s[1] - dp[1]);
+
+    if (keepPath && step % 6 === 0) { path.push([s[0], s[1]]); dpath.push(dp); ptime.push(t); }
+
+    if (sep < bestRaw) { bestRaw = sep; bestT = t; bestIdx = step; best = { sep, t, wad: [s[0], s[1]], drone: dp }; }
+
+    // Parabolic refinement once the separation turns back upward.
+    if (refined === null && sPrev1 < sPrev2 && sep > sPrev1) {
+      const den = sPrev2 - 2 * sPrev1 + sep;
+      refined = Math.abs(den) > 1e-12 ? sPrev1 - 0.125 * Math.pow(sPrev2 - sep, 2) / den : sPrev1;
+    }
+    sPrev2 = sPrev1; sPrev1 = sep;
+
+    if (groundHit) break;
+  }
+
+  if (keepPath) { path.push([s[0], s[1]]); dpath.push(droneAt(t)); ptime.push(t); }
+
+  const cpa = (refined !== null && refined > 0 && refined <= bestRaw) ? refined : bestRaw;
+  // "Fell short": still closing when it hit the dirt — more speed or elevation needed.
+  const fellShort = groundHit && bestIdx >= step - 1;
+  // The drone arriving only matters if it CUT OFF a still-improving approach.
+  // A wad that already made its pass and flew on is a normal engagement.
+  const cutOff = p.vt > 1e-9 && t >= tArrive - dt && bestIdx >= step - 2;
+
+  // Plot only the intercept, not the wad's whole ballistic flight — at 1:1 scale
+  // the post-pass trajectory dwarfs the geometry the chart exists to show.
+  let cutPath = path, cutDrone = dpath;
+  if (keepPath) {
+    let iEnd = ptime.length - 1;
+    const tShow = best.t * 1.45;
+    for (let i = 0; i < ptime.length; i++) { if (ptime[i] > tShow) { iEnd = i; break; } }
+    iEnd = Math.max(iEnd, 3);
+    cutPath  = path.slice(0, iEnd + 1);
+    cutDrone = dpath.slice(0, iEnd + 1);
+  }
+
+  return {
+    cpa, tcpa: best.t, wadAtCPA: best.wad, droneAtCPA: best.drone,
+    speedAtCPA: Math.hypot(s[2], s[3]),
+    tEnd: t, groundHit, fellShort, Rs, theta,
+    path: cutPath, dpath: cutDrone,
+    droneArrived: cutOff
+  };
+}
+
+// Speed of the wad at the moment of closest approach (re-run briefly for accuracy).
+function speedAt(p, theta, tTarget) {
+  const C = roundCtx(p), dt = 0.0005;
+  let s = [0, p.h0, p.v0 * Math.cos(theta), p.v0 * Math.sin(theta)], t = 0;
+  while (t < tTarget) {
+    const h = Math.min(dt, tTarget - t);
+    const a = deriv(s, C);
+    const s2 = s.map((x, i) => x + 0.5 * h * a[i]);
+    const b  = deriv(s2, C);
+    const s3 = s.map((x, i) => x + 0.5 * h * b[i]);
+    const c  = deriv(s3, C);
+    const s4 = s.map((x, i) => x + h * c[i]);
+    const d  = deriv(s4, C);
+    s = s.map((x, i) => x + (h / 6) * (a[i] + 2 * b[i] + 2 * c[i] + d[i]));
+    t += h;
+  }
+  return Math.hypot(s[2], s[3]);
+}
+
+function losAngle(p) { return Math.atan2(p.H0 - p.h0, p.d0); }
+
+// Golden-section search for the elevation that minimises closest approach.
+function optimalTheta(p) {
+  const t0 = losAngle(p);
+  let lo = t0 - 0.08, hi = Math.min(t0 + 1.15, 1.45);
+  const f = th => { const r = simulate(p, th, 0.002, false); return r ? r.cpa : Infinity; };
+  const gr = (Math.sqrt(5) - 1) / 2;
+  let c = hi - gr * (hi - lo), d = lo + gr * (hi - lo);
+  let fc = f(c), fd = f(d);
+  for (let i = 0; i < 44; i++) {
+    if (fc < fd) { hi = d; d = c; fd = fc; c = hi - gr * (hi - lo); fc = f(c); }
+    else         { lo = c; c = d; fc = fd; d = lo + gr * (hi - lo); fd = f(d); }
+    if (hi - lo < 1e-5) break;
+  }
+  return 0.5 * (lo + hi);
+}
+
+function solve(p, aim, keepPath) {
+  const theta = aim === "opt" ? optimalTheta(p) : losAngle(p);
+  const r = simulate(p, theta, keepPath ? 0.0008 : 0.002, keepPath);
+  if (!r) return null;
+  r.reqR = Math.max(0, r.cpa - p.rhit);
+  if (keepPath) r.speedAtCPA = speedAt(p, theta, r.tcpa);
+  return r;
+}
+
+/* -------------------------------------------------------------------
+   Gumball dispersal.
+
+   A burst cloud is not a solid sphere — it is a thin SHELL of N discrete
+   gumballs all travelling outward together. So the drone is not hit by
+   "the blast reaching it"; it is hit when the shell sweeps past its
+   position and one of the balls happens to land on it.
+
+   Single ball under quadratic drag, ejected at ve:
+       v(r) = ve·e^(−k·r)              k = 0.75·ρ·Cd / (d_ball·ρ_gum)
+       r(t) = ln(1 + k·ve·t) / k
+   so the fuse lead time that puts the shell at radius `miss` is
+       t* = (e^(k·miss) − 1) / (k·ve)
+
+   Coverage when the shell passes the drone at radius `miss`:
+       λ = N·A_drone / (4π·miss²) = N·r_hit² / (4·miss²)
+       P(at least one ball on the drone) = 1 − e^(−λ)
+
+   Effective blast radius = the shell radius at which λ = 1, i.e. where you
+   expect exactly one gumball on the drone:
+       R_eff = r_hit·√N / 2 = (r_hit/2)·√φ·(D/d_ball)^1.5
+   ------------------------------------------------------------------- */
+function dispersal(p, miss, vRel) {
+  const N   = payload(p).N;
+  // Closed forms below assume a constant k. With Cd(Re) on we freeze it at the
+  // ejection speed — gumballs stay deep in the subcritical plateau (Re ~ 2e4),
+  // so Cd barely moves across their speed range and the approximation is tight.
+  const kb  = ballK(p, p.ve);
+  const vs  = Math.max(p.vstick, 1e-6);
+  const ratio = p.ve / vs;
+
+  const Reff   = p.rhit * Math.sqrt(N) / 2;
+  const Rmax   = (kb > 0 && ratio > 1) ? Math.log(ratio) / kb : (ratio > 1 ? Infinity : 0);
+  const tLead  = (kb > 0 && p.ve > 0) ? (Math.exp(kb * miss) - 1) / (kb * p.ve)
+                                      : (p.ve > 0 ? miss / p.ve : Infinity);
+  const vArr   = p.ve * Math.exp(-kb * miss);
+  const lambda = miss > 1e-9 ? N * p.rhit * p.rhit / (4 * miss * miss) : N;
+  const dMin   = ratio > 1.0000001
+    ? 0.75 * p.rho * p.CdBall * miss / (p.rhoGum * Math.log(ratio)) * 1000 : Infinity;
+
+  return {
+    N, kb, Reff, Rmax, tLead, vArr, lambda, dMin,
+    pFrag: 1 - Math.exp(-lambda),
+    // Trigger radius must also cover the distance closed during fuse latency.
+    standoff: isFinite(tLead) ? (tLead + p.tfuse / 1000) * vRel : Infinity,
+    reaches: Rmax >= miss, sticks: vArr >= vs,
+  };
+}
+
+/* ---------- Lognormal blast radius ---------- */
+function erf(x) {
+  const s = x < 0 ? -1 : 1; x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y;
+}
+const Phi = z => 0.5 * (1 + erf(z / Math.SQRT2));
+
+// P(R >= reqR) where ln R ~ N(ln median, sigma^2)
+function pHit(reqR, median, sigma) {
+  if (reqR <= 0) return 1;
+  if (median <= 0 || sigma <= 0) return median >= reqR ? 1 : 0;
+  return 1 - Phi((Math.log(reqR) - Math.log(median)) / sigma);
+}
+// Median radius you must design to, to hit with probability p.
+const medianFor = (reqR, sigma, z) => reqR * Math.exp(sigma * z);
+
+const LEVELS = [
+  { p: 0.50, z: 0.0000 }, { p: 0.80, z: 0.8416 }, { p: 0.90, z: 1.2816 },
+  { p: 0.95, z: 1.6449 }, { p: 0.99, z: 2.3263 },
+];
+
+/* ===================================================================
+   3. FORMATTING + SVG HELPERS
+   =================================================================== */
+const SVGNS = "http://www.w3.org/2000/svg";
+const fmt = (x, n = 2) => (!isFinite(x) ? "—" : x.toFixed(n));
+const el  = (tag, attrs = {}, parent = null) => {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const a in attrs) n.setAttribute(a, attrs[a]);
+  if (parent) parent.appendChild(n);
+  return n;
+};
+function txt(parent, x, y, s, cls, anchor) {
+  const n = el("text", { x, y, class: cls || "tick" }, parent);
+  if (anchor) n.setAttribute("text-anchor", anchor);
+  n.textContent = s;
+  return n;
+}
+function niceTicks(lo, hi, want) {
+  const span = hi - lo;
+  if (!(span > 0)) return [lo];
+  const raw = span / want, mag = Math.pow(10, Math.floor(Math.log10(raw))), norm = raw / mag;
+  const stepN = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  const step = stepN * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step) out.push(Math.abs(v) < step * 1e-6 ? 0 : v);
+  return out;
+}
+const pathD = pts => pts.map((q, i) => (i ? "L" : "M") + q[0].toFixed(2) + " " + q[1].toFixed(2)).join(" ");
+
+const tipEl = document.getElementById("tip");
+function showTip(cx, cy, header, rows) {
+  tipEl.innerHTML = "";
+  const h = document.createElement("div"); h.className = "hd"; h.textContent = header; tipEl.appendChild(h);
+  rows.forEach(r => {
+    const d = document.createElement("div"); d.className = "r";
+    const k = document.createElement("span"); k.className = "k"; k.style.background = r.color; d.appendChild(k);
+    const v = document.createElement("span"); v.className = "v"; v.textContent = r.value; d.appendChild(v);
+    const n = document.createElement("span"); n.className = "n"; n.textContent = r.name; d.appendChild(n);
+    tipEl.appendChild(d);
+  });
+  tipEl.style.opacity = "1";
+  const w = tipEl.offsetWidth, hh = tipEl.offsetHeight;
+  tipEl.style.left = Math.min(cx + 14, window.innerWidth  - w - 10) + "px";
+  tipEl.style.top  = Math.min(cy + 14, window.innerHeight - hh - 10) + "px";
+}
+const hideTip = () => { tipEl.style.opacity = "0"; };
+const cssVar = n => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(n).trim();
+
+/* ===================================================================
+   4. CHART — engagement geometry (2 series, equal aspect)
+   =================================================================== */
+function drawTrajectory(res) {
+  const svg = document.getElementById("trajChart");
+  svg.innerHTML = "";
+  if (!res) return;
+  const W = 760, H = 340, M = { t: 14, r: 18, b: 40, l: 48 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+
+  // Data extent over both paths, then expand to a true 1:1 aspect ratio.
+  const all = res.path.concat(res.dpath);
+  let x0 = 0, x1 = Math.max(...all.map(q => q[0]), P.d0);
+  let y0 = 0, y1 = Math.max(...all.map(q => q[1]), P.H0);
+  const padX = (x1 - x0) * 0.05 + 0.5, padY = (y1 - y0) * 0.08 + 0.5;
+  x0 -= padX; x1 += padX; y1 += padY;
+
+  const sx = pw / (x1 - x0), sy = ph / (y1 - y0), s = Math.min(sx, sy);
+  const cxm = (x0 + x1) / 2, cym = (y0 + y1) / 2;
+  x0 = cxm - pw / (2 * s); x1 = cxm + pw / (2 * s);
+  y0 = cym - ph / (2 * s); y1 = cym + ph / (2 * s);
+
+  const X = v => M.l + (v - x0) * s;
+  const Y = v => M.t + ph - (v - y0) * s;
+
+  const grid = el("g", {}, svg);
+  niceTicks(x0, x1, 7).forEach(v => {
+    el("line", { x1: X(v), y1: M.t, x2: X(v), y2: M.t + ph, stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, X(v), M.t + ph + 15, fmt(v, 0), "tick", "middle");
+  });
+  niceTicks(y0, y1, 5).forEach(v => {
+    el("line", { x1: M.l, y1: Y(v), x2: M.l + pw, y2: Y(v), stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, M.l - 8, Y(v) + 3.5, fmt(v, 0), "tick", "end");
+  });
+  el("line", { x1: M.l, y1: Y(0), x2: M.l + pw, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, svg);
+  txt(svg, M.l + pw / 2, H - 6, "Horizontal distance from cannon (m)", "axis-title", "middle");
+  const yt = txt(svg, 0, 0, "Altitude (m)", "axis-title", "middle");
+  yt.setAttribute("transform", `translate(12,${M.t + ph / 2}) rotate(-90)`);
+
+  // Miss-distance connector at closest approach (drawn under the paths).
+  const wp = res.wadAtCPA, dp2 = res.droneAtCPA;
+  el("line", { x1: X(wp[0]), y1: Y(wp[1]), x2: X(dp2[0]), y2: Y(dp2[1]),
+               stroke: "var(--text-muted)", "stroke-width": 1.5 }, svg);
+
+  el("path", { d: pathD(res.dpath.map(q => [X(q[0]), Y(q[1])])), fill: "none",
+               stroke: "var(--series-2)", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, svg);
+  el("path", { d: pathD(res.path.map(q => [X(q[0]), Y(q[1])])), fill: "none",
+               stroke: "var(--series-1)", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, svg);
+
+  // Markers carry a 2px surface ring so they stay legible where paths cross.
+  [[wp, "--series-1"], [dp2, "--series-2"]].forEach(([q, col]) => {
+    el("circle", { cx: X(q[0]), cy: Y(q[1]), r: 4.5, fill: `var(${col})`,
+                   stroke: "var(--surface-1)", "stroke-width": 2 }, svg);
+  });
+
+  // One selective direct label: the number the chart exists to show.
+  const mx = (X(wp[0]) + X(dp2[0])) / 2, my = (Y(wp[1]) + Y(dp2[1])) / 2;
+  const flip = mx > M.l + pw * 0.72;
+  txt(svg, flip ? mx - 10 : mx + 10, my - 3, fmt(res.cpa) + " m", "dlabel", flip ? "end" : "start");
+  txt(svg, flip ? mx - 10 : mx + 10, my + 9, "closest approach", "dlabel-sub", flip ? "end" : "start");
+
+  // Crosshair + tooltip: pointer only has to be close in X.
+  const xs = res.path.map(q => q[0]);
+  const cross = el("line", { x1: 0, y1: M.t, x2: 0, y2: M.t + ph, stroke: "var(--axis)", "stroke-width": 1, opacity: 0 }, svg);
+  const hit = el("rect", { x: M.l, y: M.t, width: pw, height: ph, fill: "transparent" }, svg);
+  hit.style.cursor = "crosshair";
+  hit.addEventListener("pointermove", ev => {
+    const box = svg.getBoundingClientRect();
+    const vx = x0 + ((ev.clientX - box.left) / box.width * W - M.l) / s;
+    let bi = 0, bd = Infinity;
+    xs.forEach((v, i) => { const dd = Math.abs(v - vx); if (dd < bd) { bd = dd; bi = i; } });
+    const w = res.path[bi], dr = res.dpath[bi];
+    cross.setAttribute("x1", X(w[0])); cross.setAttribute("x2", X(w[0])); cross.setAttribute("opacity", 1);
+    showTip(ev.clientX, ev.clientY, `x = ${fmt(w[0], 1)} m`, [
+      { color: cssVar("--series-1"), value: fmt(w[1], 1) + " m",  name: "wad altitude" },
+      { color: cssVar("--series-2"), value: fmt(dr[1], 1) + " m", name: "drone altitude" },
+      { color: cssVar("--text-muted"), value: fmt(Math.hypot(w[0] - dr[0], w[1] - dr[1]), 2) + " m", name: "separation" },
+    ]);
+  });
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("opacity", 0); hideTip(); });
+
+  // Table-view twin.
+  const rows = [];
+  const stride = Math.max(1, Math.floor(res.path.length / 14));
+  for (let i = 0; i < res.path.length; i += stride) {
+    const w = res.path[i], dr = res.dpath[i];
+    rows.push([fmt(w[0], 1), fmt(w[1], 1), fmt(dr[0], 1), fmt(dr[1], 1), fmt(Math.hypot(w[0] - dr[0], w[1] - dr[1]), 2)]);
+  }
+  buildTable("trajTbl", "Sampled along the engagement", ["Wad x (m)", "Wad y (m)", "Drone x (m)", "Drone y (m)", "Separation (m)"], rows);
+}
+
+/* ===================================================================
+   5. CHART — required radius vs. range (1 series, no legend box)
+   =================================================================== */
+function drawSweep(curRes) {
+  const svg = document.getElementById("sweepChart");
+  svg.innerHTML = "";
+  const W = 760, H = 300, M = { t: 16, r: 74, b: 40, l: 54 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+
+  const lo = Math.max(2, P.d0 * 0.08), hi = Math.max(P.d0 * 2, lo + 10), N = 64;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const d = lo + (hi - lo) * i / N;
+    const r = solve(Object.assign({}, P, { d0: d }), AIM, false);
+    if (r) pts.push({ d, r: r.reqR });
+  }
+  if (!pts.length) return;
+
+  const x0 = lo, x1 = hi;
+  const ymax = Math.max(...pts.map(q => q.r), curRes ? curRes.reqR : 0, 0.1) * 1.12;
+  const X = v => M.l + (v - x0) / (x1 - x0) * pw;
+  const Y = v => M.t + ph - (v / ymax) * ph;
+
+  const grid = el("g", {}, svg);
+  niceTicks(x0, x1, 7).forEach(v => {
+    el("line", { x1: X(v), y1: M.t, x2: X(v), y2: M.t + ph, stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, X(v), M.t + ph + 15, fmt(v, 0), "tick", "middle");
+  });
+  niceTicks(0, ymax, 5).forEach(v => {
+    el("line", { x1: M.l, y1: Y(v), x2: M.l + pw, y2: Y(v), stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, M.l - 8, Y(v) + 3.5, fmt(v, 1), "tick", "end");
+  });
+  el("line", { x1: M.l, y1: Y(0), x2: M.l + pw, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, svg);
+  txt(svg, M.l + pw / 2, H - 6, "Ground range to drone (m)", "axis-title", "middle");
+  const yt = txt(svg, 0, 0, "Required blast radius (m)", "axis-title", "middle");
+  yt.setAttribute("transform", `translate(13,${M.t + ph / 2}) rotate(-90)`);
+
+  el("path", { d: pathD(pts.map(q => [X(q.d), Y(q.r)])), fill: "none",
+               stroke: "var(--series-1)", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, svg);
+
+  // Marker + direct label at the range you are currently designing for.
+  if (curRes && P.d0 >= x0 && P.d0 <= x1) {
+    el("line", { x1: X(P.d0), y1: M.t, x2: X(P.d0), y2: M.t + ph, stroke: "var(--axis)", "stroke-width": 1 }, svg);
+    el("circle", { cx: X(P.d0), cy: Y(curRes.reqR), r: 4.5, fill: "var(--series-1)",
+                   stroke: "var(--surface-1)", "stroke-width": 2 }, svg);
+    const lx = X(P.d0) > M.l + pw * 0.7 ? X(P.d0) - 10 : X(P.d0) + 10;
+    const an = X(P.d0) > M.l + pw * 0.7 ? "end" : "start";
+    txt(svg, lx, Y(curRes.reqR) - 9, fmt(curRes.reqR) + " m", "dlabel", an);
+    txt(svg, lx, Y(curRes.reqR) + 3, "current range", "dlabel-sub", an);
+  }
+
+  const cross = el("line", { x1: 0, y1: M.t, x2: 0, y2: M.t + ph, stroke: "var(--axis)", "stroke-width": 1, opacity: 0 }, svg);
+  const hit = el("rect", { x: M.l, y: M.t, width: pw, height: ph, fill: "transparent" }, svg);
+  hit.style.cursor = "crosshair";
+  hit.addEventListener("pointermove", ev => {
+    const box = svg.getBoundingClientRect();
+    const vx = x0 + (((ev.clientX - box.left) / box.width * W) - M.l) / pw * (x1 - x0);
+    let b = pts[0];
+    pts.forEach(q => { if (Math.abs(q.d - vx) < Math.abs(b.d - vx)) b = q; });
+    cross.setAttribute("x1", X(b.d)); cross.setAttribute("x2", X(b.d)); cross.setAttribute("opacity", 1);
+    showTip(ev.clientX, ev.clientY, `range = ${fmt(b.d, 1)} m`, [
+      { color: cssVar("--series-1"), value: fmt(b.r) + " m", name: "required blast radius" },
+      { color: cssVar("--text-muted"), value: fmt(medianFor(b.r, P.sigma, 1.6449)) + " m", name: "median for 95%" },
+    ]);
+  });
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("opacity", 0); hideTip(); });
+
+  const rows = [];
+  const stride = Math.max(1, Math.floor(pts.length / 16));
+  for (let i = 0; i < pts.length; i += stride) {
+    rows.push([fmt(pts[i].d, 1), fmt(pts[i].r), fmt(medianFor(pts[i].r, P.sigma, 1.6449))]);
+  }
+  buildTable("sweepTbl", "Required blast radius by range", ["Range (m)", "Required radius (m)", "Median for 95% (m)"], rows);
+}
+
+function buildTable(id, caption, headers, rows) {
+  const wrap = document.getElementById(id);
+  const wasHidden = wrap.hidden;
+  wrap.innerHTML = "";
+  const t = document.createElement("table"); t.className = "data";
+  const cap = document.createElement("caption"); cap.textContent = caption; t.appendChild(cap);
+  const th = document.createElement("thead"), tr = document.createElement("tr");
+  headers.forEach(h => { const c = document.createElement("th"); c.textContent = h; tr.appendChild(c); });
+  th.appendChild(tr); t.appendChild(th);
+  const tb = document.createElement("tbody");
+  rows.forEach(r => {
+    const x = document.createElement("tr");
+    r.forEach(v => { const c = document.createElement("td"); c.textContent = v; x.appendChild(c); });
+    tb.appendChild(x);
+  });
+  t.appendChild(tb); wrap.appendChild(t); wrap.hidden = wasHidden;
+}
+
+/* ===================================================================
+   5b. MONTE CARLO OVER SHOT DISPERSION
+   Real cannons scatter. Aim error and muzzle-velocity spread turn the miss
+   distance into a distribution, which is what actually decides whether the
+   system works. Seeded, so the answer is reproducible run to run.
+   =================================================================== */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function gauss(rnd) {
+  let u = 0, v = 0;
+  while (u === 0) u = rnd();
+  while (v === 0) v = rnd();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function monteCarlo(p, aim) {
+  const n = Math.max(20, Math.min(3000, Math.round(p.nShots)));
+  const base = aim === "opt" ? optimalTheta(p) : losAngle(p);
+  const N = payload(p).N, rnd = mulberry32(0x9E3779B9);
+  const misses = [];
+  let hits = 0, short = 0;
+  for (let i = 0; i < n; i++) {
+    const th = base + gauss(rnd) * p.sigTheta / 1000;
+    const q = Object.assign({}, p, { v0: Math.max(1, p.v0 * (1 + gauss(rnd) * p.sigV0 / 100)) });
+    const r = simulate(q, th, 0.0025, false);
+    if (!r) continue;
+    if (r.fellShort) short++;
+    misses.push(r.cpa);
+    // Per-shot coverage draw: P(at least one ball) at THIS shot's miss distance.
+    const lam = r.cpa > 1e-9 ? N * p.rhit * p.rhit / (4 * r.cpa * r.cpa) : N;
+    if (rnd() < 1 - Math.exp(-lam)) hits++;
+  }
+  const sorted = misses.slice().sort((a, b) => a - b);
+  const q = f => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))] : NaN;
+  return { misses: sorted, n: sorted.length, hits, short,
+           rate: sorted.length ? hits / sorted.length : 0,
+           p50: q(0.50), p90: q(0.90), best: sorted[0], worst: sorted[sorted.length - 1] };
+}
+
+// Histogram of miss distance. One series -> slot 1, no legend box.
+function drawHistogram(mc, nominal) {
+  const svg = document.getElementById("mcChart");
+  svg.innerHTML = "";
+  if (!mc || !mc.n) return;
+  const W = 760, H = 280, M = { t: 16, r: 20, b: 42, l: 52 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+
+  const lo = mc.misses[0], hi = mc.misses[mc.n - 1];
+  const span = Math.max(hi - lo, 1e-6);
+  const NB = 26, w = span / NB;
+  const bins = new Array(NB).fill(0);
+  mc.misses.forEach(v => { bins[Math.min(NB - 1, Math.floor((v - lo) / w))]++; });
+  const ymax = Math.max(...bins, 1);
+
+  const X = v => M.l + (v - lo) / span * pw;
+  const Y = v => M.t + ph - (v / ymax) * ph;
+
+  const grid = el("g", {}, svg);
+  niceTicks(lo, hi, 6).forEach(v => txt(svg, X(v), M.t + ph + 15, fmt(v, 2), "tick", "middle"));
+  niceTicks(0, ymax, 4).forEach(v => {
+    el("line", { x1: M.l, y1: Y(v), x2: M.l + pw, y2: Y(v), stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, M.l - 8, Y(v) + 3.5, String(Math.round(v)), "tick", "end");
+  });
+  el("line", { x1: M.l, y1: Y(0), x2: M.l + pw, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, svg);
+  txt(svg, M.l + pw / 2, H - 6, "Miss distance (m)", "axis-title", "middle");
+  const yt = txt(svg, 0, 0, "Shots", "axis-title", "middle");
+  yt.setAttribute("transform", `translate(13,${M.t + ph / 2}) rotate(-90)`);
+
+  const bw = Math.max(2, pw / NB - 2);   // 2px surface gap between adjacent bars
+  bins.forEach((c, i) => {
+    if (!c) return;
+    const x = M.l + (i / NB) * pw + 1, h = ph - (Y(c) - M.t);
+    const r = Math.min(4, bw / 2, h);    // 4px rounded cap, square at the baseline
+    const d = `M${x} ${Y(0)} L${x} ${Y(c) + r} Q${x} ${Y(c)} ${x + r} ${Y(c)}`
+            + ` L${x + bw - r} ${Y(c)} Q${x + bw} ${Y(c)} ${x + bw} ${Y(c) + r} L${x + bw} ${Y(0)} Z`;
+    const p = el("path", { d, fill: "var(--series-1)" }, svg);
+    const hitArea = el("rect", { x, y: M.t, width: bw, height: ph, fill: "transparent" }, svg);
+    const a = lo + i * w, b = a + w;
+    hitArea.addEventListener("pointermove", ev => {
+      p.setAttribute("opacity", "0.72");
+      showTip(ev.clientX, ev.clientY, `${fmt(a, 2)} – ${fmt(b, 2)} m`, [
+        { color: cssVar("--series-1"), value: String(c), name: "shots" },
+        { color: cssVar("--text-muted"), value: fmt(100 * c / mc.n, 1) + "%", name: "of all shots" },
+      ]);
+    });
+    hitArea.addEventListener("pointerleave", () => { p.setAttribute("opacity", "1"); hideTip(); });
+  });
+
+  // Nominal (zero-dispersion) shot, for reference.
+  if (isFinite(nominal) && nominal >= lo && nominal <= hi) {
+    el("line", { x1: X(nominal), y1: M.t, x2: X(nominal), y2: M.t + ph,
+                 stroke: "var(--axis)", "stroke-width": 1 }, svg);
+    txt(svg, X(nominal) + 6, M.t + 11, "nominal " + fmt(nominal) + " m", "dlabel-sub", "start");
+  }
+
+  buildTable("mcTbl", `Miss distance distribution over ${mc.n} shots`,
+    ["Bin (m)", "Shots", "Share"],
+    bins.map((c, i) => [`${fmt(lo + i * w, 2)} – ${fmt(lo + (i + 1) * w, 2)}`, String(c),
+                        fmt(100 * c / mc.n, 1) + "%"]).filter(r => r[1] !== "0"));
+}
+
+/* ===================================================================
+   6. READOUTS
+   =================================================================== */
+function fillTiles(id, rows) {
+  const w = document.getElementById(id);
+  w.innerHTML = "";
+  rows.forEach(([l, v, u]) => {
+    const d = document.createElement("div"); d.className = "tile";
+    const a = document.createElement("div"); a.className = "lab"; a.textContent = l;
+    const b = document.createElement("div"); b.className = "num"; b.textContent = v;
+    if (u) { const s = document.createElement("span"); s.className = "u"; s.textContent = u; b.appendChild(s); }
+    d.appendChild(a); d.appendChild(b); w.appendChild(d);
+  });
+}
+
+// P(at least one gumball on the drone) as a function of gumball diameter.
+function drawBallChart(miss) {
+  const svg = document.getElementById("ballChart");
+  svg.innerHTML = "";
+  const W = 760, H = 270, M = { t: 16, r: 78, b: 40, l: 52 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+
+  const lo = 2, hi = Math.max(32, P.dball * 1.6), N = 90;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const d = lo + (hi - lo) * i / N;
+    const ds = dispersal(Object.assign({}, P, { dball: d }), Math.max(miss, 1e-6), 1);
+    pts.push({ d, p: ds.reaches ? ds.pFrag * 100 : 0, lam: ds.lambda, reaches: ds.reaches });
+  }
+
+  const X = v => M.l + (v - lo) / (hi - lo) * pw;
+  const Y = v => M.t + ph - (v / 100) * ph;
+
+  const grid = el("g", {}, svg);
+  niceTicks(lo, hi, 7).forEach(v => {
+    el("line", { x1: X(v), y1: M.t, x2: X(v), y2: M.t + ph, stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, X(v), M.t + ph + 15, fmt(v, 0), "tick", "middle");
+  });
+  [0, 25, 50, 75, 100].forEach(v => {
+    el("line", { x1: M.l, y1: Y(v), x2: M.l + pw, y2: Y(v), stroke: "var(--grid)", "stroke-width": 1 }, grid);
+    txt(svg, M.l - 8, Y(v) + 3.5, v + "%", "tick", "end");
+  });
+  el("line", { x1: M.l, y1: Y(0), x2: M.l + pw, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, svg);
+  txt(svg, M.l + pw / 2, H - 6, "Gumball diameter (mm)", "axis-title", "middle");
+  const yt = txt(svg, 0, 0, "P(at least one hit)", "axis-title", "middle");
+  yt.setAttribute("transform", `translate(12,${M.t + ph / 2}) rotate(-90)`);
+
+  el("path", { d: pathD(pts.map(q => [X(q.d), Y(q.p)])), fill: "none", stroke: "var(--series-1)",
+               "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, svg);
+
+  const cur = dispersal(P, Math.max(miss, 1e-6), 1);
+  const curP = cur.reaches ? cur.pFrag * 100 : 0;
+  if (P.dball >= lo && P.dball <= hi) {
+    el("line", { x1: X(P.dball), y1: M.t, x2: X(P.dball), y2: M.t + ph, stroke: "var(--axis)", "stroke-width": 1 }, svg);
+    el("circle", { cx: X(P.dball), cy: Y(curP), r: 4.5, fill: "var(--series-1)",
+                   stroke: "var(--surface-1)", "stroke-width": 2 }, svg);
+    const right = X(P.dball) > M.l + pw * 0.7;
+    const lx = right ? X(P.dball) - 10 : X(P.dball) + 10, an = right ? "end" : "start";
+    txt(svg, lx, Y(curP) - 9, fmt(curP, 1) + "%", "dlabel", an);
+    txt(svg, lx, Y(curP) + 3, "your ball size", "dlabel-sub", an);
+  }
+
+  const cross = el("line", { x1: 0, y1: M.t, x2: 0, y2: M.t + ph, stroke: "var(--axis)", "stroke-width": 1, opacity: 0 }, svg);
+  const hit = el("rect", { x: M.l, y: M.t, width: pw, height: ph, fill: "transparent" }, svg);
+  hit.style.cursor = "crosshair";
+  hit.addEventListener("pointermove", ev => {
+    const box = svg.getBoundingClientRect();
+    const vx = lo + (((ev.clientX - box.left) / box.width * W) - M.l) / pw * (hi - lo);
+    let b = pts[0];
+    pts.forEach(q => { if (Math.abs(q.d - vx) < Math.abs(b.d - vx)) b = q; });
+    cross.setAttribute("x1", X(b.d)); cross.setAttribute("x2", X(b.d)); cross.setAttribute("opacity", 1);
+    showTip(ev.clientX, ev.clientY, `d = ${fmt(b.d, 1)} mm`, [
+      { color: cssVar("--series-1"), value: fmt(b.p, 1) + "%", name: "P(at least one hit)" },
+      { color: cssVar("--text-muted"), value: fmt(b.lam, 2), name: "expected hits λ" },
+      { color: cssVar("--text-muted"), value: Math.round(payload(Object.assign({}, P, { dball: b.d })).N).toLocaleString(), name: "gumballs carried" },
+    ]);
+  });
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("opacity", 0); hideTip(); });
+
+  const rows = [];
+  const stride = Math.max(1, Math.floor(pts.length / 15));
+  for (let i = 0; i < pts.length; i += stride) {
+    const n = payload(Object.assign({}, P, { dball: pts[i].d })).N;
+    rows.push([fmt(pts[i].d, 1), Math.round(n).toLocaleString(), fmt(pts[i].lam, 2),
+               fmt(pts[i].p, 1) + "%", pts[i].reaches ? "yes" : "no"]);
+  }
+  buildTable("ballTbl", "Coverage by gumball diameter", ["d (mm)", "N balls", "λ", "P(hit)", "Reaches?"], rows);
+}
+
+let LAST_RES = null;
+
+function render() {
+  const res = solve(P, AIM, true);
+  LAST_RES = res;
+
+  // --- Hero ---
+  const heroVal = document.getElementById("heroVal");
+  const heroCap = document.getElementById("heroCap");
+  const banner  = document.getElementById("banner");
+  const bIco    = document.getElementById("bannerIco");
+  const bTxt    = document.getElementById("bannerTxt");
+
+  if (!res) { heroVal.textContent = "—"; heroCap.textContent = "Degenerate geometry."; return; }
+
+  heroVal.textContent = fmt(res.reqR);
+  const aimName = AIM === "opt" ? "an optimally elevated barrel" : "the barrel laid straight on the line of sight";
+  heroCap.textContent = res.reqR <= 0
+    ? `With ${aimName}, the wad passes inside your ${fmt(P.rhit)} m hit radius — a direct hit needs no blast at all.`
+    : `With ${aimName}, the wad misses by ${fmt(res.cpa)} m. Subtracting your ${fmt(P.rhit)} m effective hit radius leaves this much gum to bridge.`;
+
+  banner.hidden = false;
+  if (res.fellShort) {
+    banner.className = "banner critical"; bIco.textContent = "!";
+    bTxt.innerHTML = "<b>Wad fell short.</b> It hit the ground while still closing on the drone — the closest approach shown is a floor, not a real intercept. Raise muzzle velocity, lower drag (heavier or smaller wad), or switch to optimal elevation.";
+  } else if (res.droneArrived) {
+    banner.className = "banner warning"; bIco.textContent = "▲";
+    bTxt.innerHTML = "<b>Drone reached the cannon.</b> The engagement window closed before the wad got its best shot. You are firing too late for this closing speed.";
+  } else if (res.reqR <= 0) {
+    banner.className = "banner good"; bIco.textContent = "✓";
+    bTxt.innerHTML = "<b>Direct hit.</b> Any nonzero blast radius works at this range — the constraint is elsewhere in your design.";
+  } else {
+    const p95 = medianFor(res.reqR, P.sigma, 1.6449);
+    banner.className = "banner good"; bIco.textContent = "✓";
+    bTxt.innerHTML = `<b>Valid intercept.</b> To hit 95% of the time with σ = ${fmt(P.sigma, 2)}, design for a median blast radius of <b>${fmt(p95)} m</b>.`;
+  }
+
+  // --- Derived payload read-out ---
+  const pl = payload(P);
+  const dv = document.getElementById("derived");
+  if (dv) {
+    dv.innerHTML = "";
+    const rows = [
+      ["Gum volume",      fmt(pl.Vgum * 1e6, 1) + " cm³"],
+      ["Gum mass",        fmt(pl.mGum * 1000, 1) + " g"],
+      ["Total round mass", fmt(pl.mTot * 1000, 1) + " g"],
+      ["Gumballs carried", Math.round(pl.N).toLocaleString()],
+      ["Frontal area",    fmt(pl.A * 1e4, 1) + " cm²"],
+      ["Re at muzzle",    Math.round(P.v0 * pl.D / (P.nu * 1e-6)).toLocaleString()],
+      ["C_d at muzzle",   fmt(cdOf(roundCtx(P), P.v0), 3) + (CDMODE === "re" ? "  (Re)" : "  (fixed)")],
+      ["Drag group k",    fmt(dragK(P, P.v0), 5) + " 1/m"],
+    ];
+    rows.forEach(([a, b]) => {
+      const r = document.createElement("div"); r.className = "d";
+      const x = document.createElement("span"); x.textContent = a;
+      const y = document.createElement("span"); y.textContent = b;
+      r.appendChild(x); r.appendChild(y); dv.appendChild(r);
+    });
+    // Bulk packing fractions assume many balls per bore. Few balls across the
+    // diameter and wall ordering dominates, so the real φ drifts off the preset.
+    if (pl.ratio < 5) {
+      const w = document.createElement("div"); w.className = "warn";
+      const i = document.createElement("span"); i.className = "ico"; i.textContent = "▲";
+      const t2 = document.createElement("span");
+      t2.textContent = `Only ${pl.ratio.toFixed(1)} gumballs across the bore. Below about 5, wall ordering `
+        + `dominates and bulk φ stops applying — measure your real packing fraction instead of trusting the preset.`;
+      w.appendChild(i); w.appendChild(t2); dv.appendChild(w);
+    }
+  }
+
+  // --- Stat tiles ---
+  const ph = pHit(res.reqR, P.medR, P.sigma);
+  const tiles = [
+    ["Miss distance (CPA)", fmt(res.cpa),            "m"],
+    ["Time to closest approach", fmt(res.tcpa, 3),   "s"],
+    ["Wad speed at CPA",    fmt(res.speedAtCPA, 1),  "m/s"],
+    ["Slant range at firing", fmt(res.Rs, 1),        "m"],
+    ["Barrel elevation",    fmt(res.theta * 180 / Math.PI, 1), "°"],
+    ["P(hit) at current median", fmt(ph * 100, 1),   "%"],
+  ];
+  fillTiles("tiles", tiles);
+
+  // --- Burst & dispersal ---
+  // Near head-on at closest approach: the round runs out along the sight line
+  // while the drone runs back down it, so closing speeds add.
+  const vRel = res.speedAtCPA + P.vt;
+  const ds = dispersal(P, Math.max(res.cpa, 1e-6), vRel);
+
+  document.getElementById("reffVal").textContent = fmt(ds.Reff);
+  document.getElementById("reffCap").textContent =
+    `${Math.round(ds.N).toLocaleString()} gumballs spread over a shell of that radius put one ball, on average, `
+    + `on a ${fmt(P.rhit)} m target. Your actual miss is ${fmt(res.cpa)} m, `
+    + `where the shell is ${ds.lambda >= 1 ? "still dense enough" : "thinner than that"}.`;
+
+  fillTiles("fragTiles", [
+    ["Fuse lead time",        fmt(ds.tLead * 1000, 1),  "ms"],
+    ["Burst standoff",        fmt(ds.standoff, 2),      "m"],
+    ["Ball speed on arrival", fmt(ds.vArr, 1),          "m/s"],
+    ["Max shell reach",       isFinite(ds.Rmax) ? fmt(ds.Rmax, 1) : "∞", "m"],
+    ["Expected ball hits λ",  fmt(ds.lambda, 2),        ""],
+    ["P(≥1 ball on drone)",   fmt(ds.pFrag * 100, 1),   "%"],
+  ]);
+
+  const fb = document.getElementById("fragBanner");
+  const fi = document.getElementById("fragIco"), ft = document.getElementById("fragTxt");
+  fb.hidden = false;
+  if (!ds.reaches) {
+    fb.className = "banner critical"; fi.textContent = "!";
+    ft.innerHTML = `<b>Shell dies before it arrives.</b> A ${fmt(P.dball, 1)} mm ball decays to the `
+      + `${fmt(P.vstick, 1)} m/s sticking threshold after ${fmt(ds.Rmax, 2)} m, short of the ${fmt(res.cpa)} m miss. `
+      + `Raise ejection speed or go to larger balls.`;
+  } else if (!ds.sticks) {
+    fb.className = "banner warning"; fi.textContent = "▲";
+    ft.innerHTML = `<b>Arriving too slow to stick.</b> Balls reach the drone at ${fmt(ds.vArr, 1)} m/s, `
+      + `below your ${fmt(P.vstick, 1)} m/s threshold.`;
+  } else {
+    fb.className = "banner good"; fi.textContent = "✓";
+    ft.innerHTML = `<b>Fire the fuse ${fmt(ds.tLead * 1000, 1)} ms before closest approach</b> — a burst standoff of `
+      + `${fmt(ds.standoff, 2)} m at the ${fmt(vRel, 0)} m/s closing rate. Balls arrive at ${fmt(ds.vArr, 1)} m/s. `
+      + `Smallest ball that still reaches: <b>${fmt(ds.dMin, 2)} mm</b>.`;
+  }
+
+  const fo = document.getElementById("fuseOptBtn");
+  fo.textContent = isFinite(ds.standoff)
+    ? `Set fuse trigger radius to the optimum (${fmt(ds.standoff, 2)} m)`
+    : "Set fuse trigger radius to the optimum";
+  fo.onclick = () => { if (isFinite(ds.standoff)) SETTERS.rfuse(ds.standoff); };
+
+  drawBallChart(res.cpa);
+
+  // --- Confidence table ---
+  const ct = document.getElementById("confTbl");
+  ct.innerHTML = "";
+  const cap = document.createElement("caption");
+  cap.textContent = `Required radius ${fmt(res.reqR)} m · σ = ${fmt(P.sigma, 2)} · your current median is ${fmt(P.medR)} m, giving P(hit) = ${fmt(ph * 100, 1)}%`;
+  ct.appendChild(cap);
+  const thead = document.createElement("thead"), htr = document.createElement("tr");
+  ["Hit probability", "z", "Required median radius (m)", "vs. your current median"].forEach(h => {
+    const c = document.createElement("th"); c.textContent = h; htr.appendChild(c);
+  });
+  thead.appendChild(htr); ct.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  LEVELS.forEach(L => {
+    const need = medianFor(res.reqR, P.sigma, L.z);
+    const tr = document.createElement("tr");
+    if (Math.abs(L.p - 0.95) < 1e-9) tr.className = "hi";
+    const cells = [
+      (L.p * 100).toFixed(0) + "%",
+      L.z.toFixed(3),
+      fmt(need),
+      need <= P.medR ? "met" : "×" + fmt(need / Math.max(P.medR, 1e-9), 2) + " short",
+    ];
+    cells.forEach(v => { const c = document.createElement("td"); c.textContent = v; tr.appendChild(c); });
+    tbody.appendChild(tr);
+  });
+  ct.appendChild(tbody);
+
+  drawTrajectory(res);
+  drawSweep(res);
+  scheduleSim();
+}
+
+/* ===================================================================
+   7. LIVE ENGAGEMENT SIM
+   =================================================================== */
+const SIM = { dt: 0.0005, data: null, frame: 0, playing: false, speed: 0.10,
+              zoom: false, raf: 0, last: 0, timer: 0 };
+
+// Fibonacci sphere — even directional spread, and deterministic so the replay
+// is identical every run (a random spray would reshuffle on every parameter nudge).
+function sphereDirs(M) {
+  const out = new Float32Array(M * 3), ga = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < M; i++) {
+    const y = M === 1 ? 0 : 1 - (i / (M - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y)), th = ga * i;
+    out[i * 3] = Math.cos(th) * r; out[i * 3 + 1] = y; out[i * 3 + 2] = Math.sin(th) * r;
+  }
+  return out;
+}
+
+// Inline RK4 over a flat [x,y,z,vx,vy,vz]×M buffer. Stuck balls ride the drone.
+// Drag uses air-relative velocity and re-evaluates Cd(Re) at every RK4 stage.
+function stepBalls(st, M, c, dt, stuck, dvx, dvy) {
+  const g = c.g, wx = c.wx, wy = c.wy;
+  const useRe = c.useRe && c.nu > 0, DoN = c.D / c.nu, half = 0.5 * c.rho * c.AoverM;
+  const kk = sp => half * (useRe ? cdSphere(sp * DoN) : c.cd0);
+  for (let i = 0; i < M; i++) {
+    const o = i * 6;
+    if (stuck[i] >= 0) { st[o] += dvx * dt; st[o + 1] += dvy * dt; continue; }
+    const x = st[o], y = st[o + 1], z = st[o + 2];
+    const vx = st[o + 3], vy = st[o + 4], vz = st[o + 5];
+    let rx = vx - wx, ry = vy - wy, rz = vz;
+    let sp = Math.sqrt(rx * rx + ry * ry + rz * rz), k = kk(sp);
+    const a1x = -k * sp * rx, a1y = -k * sp * ry - g, a1z = -k * sp * rz;
+    const v2x = vx + .5 * dt * a1x, v2y = vy + .5 * dt * a1y, v2z = vz + .5 * dt * a1z;
+    rx = v2x - wx; ry = v2y - wy; rz = v2z;
+    sp = Math.sqrt(rx * rx + ry * ry + rz * rz); k = kk(sp);
+    const a2x = -k * sp * rx, a2y = -k * sp * ry - g, a2z = -k * sp * rz;
+    const v3x = vx + .5 * dt * a2x, v3y = vy + .5 * dt * a2y, v3z = vz + .5 * dt * a2z;
+    rx = v3x - wx; ry = v3y - wy; rz = v3z;
+    sp = Math.sqrt(rx * rx + ry * ry + rz * rz); k = kk(sp);
+    const a3x = -k * sp * rx, a3y = -k * sp * ry - g, a3z = -k * sp * rz;
+    const v4x = vx + dt * a3x, v4y = vy + dt * a3y, v4z = vz + dt * a3z;
+    rx = v4x - wx; ry = v4y - wy; rz = v4z;
+    sp = Math.sqrt(rx * rx + ry * ry + rz * rz); k = kk(sp);
+    const a4x = -k * sp * rx, a4y = -k * sp * ry - g, a4z = -k * sp * rz;
+    st[o]     = x + (dt / 6) * (vx + 2 * v2x + 2 * v3x + v4x);
+    st[o + 1] = y + (dt / 6) * (vy + 2 * v2y + 2 * v3y + v4y);
+    st[o + 2] = z + (dt / 6) * (vz + 2 * v2z + 2 * v3z + v4z);
+    st[o + 3] = vx + (dt / 6) * (a1x + 2 * a2x + 2 * a3x + a4x);
+    st[o + 4] = vy + (dt / 6) * (a1y + 2 * a2y + 2 * a3y + a4y);
+    st[o + 5] = vz + (dt / 6) * (a1z + 2 * a2z + 2 * a3z + a4z);
+  }
+}
+
+function buildSim() {
+  const p = P;
+  const theta = AIM === "opt" ? optimalTheta(p) : losAngle(p);
+  const C = roundCtx(p), BC = ballCtx(p), kb = ballK(p, p.ve), g = p.grav;
+  const dz = p.H0 - p.h0, Rs = Math.hypot(p.d0, dz);
+  if (Rs < 1e-9) { SIM.data = null; return; }
+  const ux = -p.d0 / Rs, uy = -dz / Rs;
+  const dvx = p.vt * ux, dvy = p.vt * uy;
+  const dt = SIM.dt;
+  const tArrive = p.vt > 1e-9 ? Rs / p.vt : 1e9;
+
+  const total_N = Math.round(payload(p).N);
+  const M = Math.max(1, Math.min(total_N, 420));   // drawn/simulated subset
+
+  // ---- Phase 1: round flies out until the fuse trips ----
+  let s = [0, p.h0, p.v0 * Math.cos(theta), p.v0 * Math.sin(theta)];
+  let t = 0;
+  const rx = [], ry = [], dx = [], dy = [];
+  let burst = -1, ground = false, trig = -1;
+  const delaySteps = Math.round((p.tfuse / 1000) / dt);
+  const maxT = Math.min(tArrive, 8);
+  while (t < maxT) {
+    const Dx = p.d0 + dvx * t, Dy = p.H0 + dvy * t;
+    rx.push(s[0]); ry.push(s[1]); dx.push(Dx); dy.push(Dy);
+    // Fuse: detect at the trigger radius, then wait out the hardware latency.
+    if (trig < 0 && Math.hypot(s[0] - Dx, s[1] - Dy) <= p.rfuse) trig = rx.length - 1;
+    if (trig >= 0 && (rx.length - 1 - trig) >= delaySteps) { burst = rx.length - 1; break; }
+    if (s[1] < 0) { ground = true; break; }
+    const a = deriv(s, C);
+    const b = deriv(s.map((x, i) => x + .5 * dt * a[i]), C);
+    const c = deriv(s.map((x, i) => x + .5 * dt * b[i]), C);
+    const d2 = deriv(s.map((x, i) => x + dt * c[i]), C);
+    s = s.map((x, i) => x + (dt / 6) * (a[i] + 2 * b[i] + 2 * c[i] + d2[i]));
+    t += dt;
+  }
+  const nPre = rx.length;
+  const burstXY = burst >= 0 ? [rx[burst], ry[burst]] : null;
+
+  // ---- Phase 2: the shell ----
+  let ballXYZ = null, stuck = null, nPost = 0, shellR = null, shellC = null;
+  if (burst >= 0) {
+    const dirs = sphereDirs(M);
+    const st = new Float64Array(M * 6);
+    for (let i = 0; i < M; i++) {
+      const o = i * 6;
+      st[o] = s[0]; st[o + 1] = s[1]; st[o + 2] = 0;
+      st[o + 3] = s[2] + p.ve * dirs[i * 3];
+      st[o + 4] = s[3] + p.ve * dirs[i * 3 + 1];
+      st[o + 5] = p.ve * dirs[i * 3 + 2];
+    }
+    // Watch until the shell has swept well past the trigger radius.
+    const tReach = kb > 0 ? (Math.exp(kb * p.rfuse * 1.9) - 1) / (kb * p.ve) : p.rfuse * 1.9 / p.ve;
+    nPost = Math.max(60, Math.min(2400, Math.round(Math.max(tReach, 0.05) / dt)));
+    ballXYZ = new Float32Array(nPost * M * 3);
+    stuck = new Int32Array(M).fill(-1);
+    shellR = new Float32Array(nPost);
+    shellC = new Float32Array(nPost * 2);
+    let tt = t;
+    for (let f = 0; f < nPost; f++) {
+      const base = f * M * 3;
+      for (let i = 0; i < M; i++) {
+        const o = i * 6;
+        ballXYZ[base + i * 3] = st[o]; ballXYZ[base + i * 3 + 1] = st[o + 1]; ballXYZ[base + i * 3 + 2] = st[o + 2];
+      }
+      // Shell radius is measured about the cloud's own centroid — the cloud keeps
+      // the round's forward velocity, so measuring from the fixed burst point
+      // would fold that bulk translation into the reported radius.
+      let cx = 0, cy = 0, cz = 0, nf = 0;
+      for (let i = 0; i < M; i++) {
+        if (stuck[i] >= 0) continue;
+        const o = i * 6; cx += st[o]; cy += st[o + 1]; cz += st[o + 2]; nf++;
+      }
+      if (nf) { cx /= nf; cy /= nf; cz /= nf; } else { cx = burstXY[0]; cy = burstXY[1]; cz = 0; }
+      let rsum = 0;
+      for (let i = 0; i < M; i++) {
+        if (stuck[i] >= 0) continue;
+        const o = i * 6;
+        rsum += Math.hypot(st[o] - cx, st[o + 1] - cy, st[o + 2] - cz);
+      }
+      shellR[f] = nf ? rsum / nf : 0;
+      shellC[f * 2] = cx; shellC[f * 2 + 1] = cy;
+      const Dx = p.d0 + dvx * tt, Dy = p.H0 + dvy * tt;
+      dx.push(Dx); dy.push(Dy); rx.push(NaN); ry.push(NaN);
+      for (let i = 0; i < M; i++) {
+        if (stuck[i] >= 0) continue;
+        const o = i * 6, ax = st[o] - Dx, ay = st[o + 1] - Dy, az = st[o + 2];
+        if (ax * ax + ay * ay + az * az <= p.rhit * p.rhit) stuck[i] = f;
+      }
+      stepBalls(st, M, BC, dt, stuck, dvx, dvy);
+      tt += dt;
+    }
+  }
+
+  // ---- View bounds (1:1, so only the box matters) ----
+  let x0 = -1.5, x1 = Math.max(p.d0, ...rx.filter(isFinite)) + 1.5;
+  let y0 = -0.5, y1 = Math.max(p.H0, ...ry.filter(isFinite)) + 1.5;
+  if (burstXY) { x1 = Math.max(x1, burstXY[0] + 3); y1 = Math.max(y1, burstXY[1] + 3); }
+  const zb = burstXY ? [burstXY[0] - 4, burstXY[0] + 4, burstXY[1] - 3, burstXY[1] + 3]
+                     : [x0, x1, y0, y1];
+
+  SIM.data = { rx, ry, dx, dy, ballXYZ, stuck, shellR, shellC, M, total_N, nPre, nPost, burst,
+               burstXY, ground, total: nPre + nPost, bounds: [x0, x1, y0, y1], zoomBounds: zb };
+  SIM.frame = Math.min(SIM.frame, SIM.data.total - 1);
+}
+
+function drawSim() {
+  const cv = document.getElementById("simCanvas");
+  if (!cv) return;
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const C = n => cssVar(n);
+  ctx.fillStyle = C("--page"); ctx.fillRect(0, 0, W, H);
+  const d = SIM.data;
+  if (!d) return;
+
+  const [x0, x1, y0, y1] = SIM.zoom && d.burstXY ? d.zoomBounds : d.bounds;
+  const sc = Math.min(W / (x1 - x0), H / (y1 - y0));
+  const ox = (W - (x1 - x0) * sc) / 2, oy = (H - (y1 - y0) * sc) / 2;
+  const X = v => ox + (v - x0) * sc, Y = v => H - oy - (v - y0) * sc;
+  const f = Math.max(0, Math.min(d.total - 1, Math.floor(SIM.frame)));
+
+  // Recessive scale grid — solid hairlines, never dashed.
+  const stepM = (x1 - x0) > 60 ? 10 : (x1 - x0) > 25 ? 5 : 1;
+  ctx.lineWidth = 1; ctx.strokeStyle = C("--grid"); ctx.fillStyle = C("--text-muted");
+  ctx.font = "11px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  for (let v = Math.ceil(x0 / stepM) * stepM; v <= x1; v += stepM) {
+    ctx.beginPath(); ctx.moveTo(X(v), 0); ctx.lineTo(X(v), H); ctx.stroke();
+    ctx.fillText(v + " m", X(v) + 4, H - 6);
+  }
+  for (let v = Math.ceil(Math.max(y0, 0) / stepM) * stepM; v <= y1; v += stepM) {
+    ctx.beginPath(); ctx.moveTo(0, Y(v)); ctx.lineTo(W, Y(v)); ctx.stroke();
+  }
+  if (y0 <= 0 && y1 >= 0) {
+    ctx.strokeStyle = C("--axis"); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(W, Y(0)); ctx.stroke();
+  }
+
+  // Drone track (behind everything) then the round's track.
+  ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.globalAlpha = .38; ctx.strokeStyle = C("--series-2");
+  ctx.beginPath();
+  for (let i = 0; i <= f; i++) (i ? ctx.lineTo : ctx.moveTo).call(ctx, X(d.dx[i]), Y(d.dy[i]));
+  ctx.stroke();
+  ctx.globalAlpha = 1; ctx.strokeStyle = C("--series-1");
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i <= Math.min(f, d.nPre - 1); i++) {
+    if (!isFinite(d.rx[i])) continue;
+    (started ? ctx.lineTo : ctx.moveTo).call(ctx, X(d.rx[i]), Y(d.ry[i])); started = true;
+  }
+  ctx.stroke();
+
+  // Fuse trigger bubble around the drone, until it fires.
+  if (f < d.nPre) {
+    ctx.strokeStyle = C("--text-muted"); ctx.globalAlpha = .45; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(X(d.dx[f]), Y(d.dy[f]), P.rfuse * sc, 0, 7); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Gumballs.
+  let nStuck = 0;
+  if (d.burst >= 0 && f >= d.nPre) {
+    const pf = f - d.nPre, base = pf * d.M * 3;
+    // True scale, but floored so a 12 mm ball is still visible when zoomed out.
+    const rad = Math.max(1.9, (P.dball / 1000) * sc / 2);
+    // Mean shell front about the cloud centroid, so the expansion reads even
+    // when the individual dots are only a pixel or two across.
+    ctx.strokeStyle = C("--series-3"); ctx.globalAlpha = .28; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(X(d.shellC[pf * 2]), Y(d.shellC[pf * 2 + 1]), Math.max(0, d.shellR[pf]) * sc, 0, 7);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < d.M; i++) {
+      const bx = d.ballXYZ[base + i * 3], by = d.ballXYZ[base + i * 3 + 1], bz = d.ballXYZ[base + i * 3 + 2];
+      const on = d.stuck[i] >= 0 && d.stuck[i] <= pf;
+      if (on) nStuck++;
+      // Depth cue: balls out of the drawing plane fade slightly.
+      ctx.globalAlpha = on ? 1 : Math.max(.30, 1 - Math.abs(bz) / 3.2);
+      ctx.fillStyle = C("--series-3");
+      ctx.beginPath(); ctx.arc(X(bx), Y(by), on ? rad + 1 : rad, 0, 7); ctx.fill();
+      if (on) { ctx.strokeStyle = C("--page"); ctx.lineWidth = 2; ctx.stroke(); }
+    }
+    ctx.globalAlpha = 1;
+    // Burst flash.
+    const age = pf * SIM.dt;
+    if (age < 0.05) {
+      ctx.globalAlpha = (1 - age / 0.05) * 0.55; ctx.strokeStyle = C("--series-1"); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(X(d.burstXY[0]), Y(d.burstXY[1]), age * 900 * sc / 40 + 6, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // The round, while it still exists.
+  if (f < d.nPre && isFinite(d.rx[f])) {
+    ctx.fillStyle = C("--series-1");
+    ctx.beginPath(); ctx.arc(X(d.rx[f]), Y(d.ry[f]), Math.max(3.5, (P.dia / 1000) * sc / 2), 0, 7); ctx.fill();
+    ctx.strokeStyle = C("--page"); ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // Drone: hit ring + quad glyph.
+  const DX = X(d.dx[f]), DY = Y(d.dy[f]);
+  ctx.strokeStyle = C("--series-2"); ctx.globalAlpha = .5; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(DX, DY, P.rhit * sc, 0, 7); ctx.stroke();
+  ctx.globalAlpha = 1;
+  const body = Math.max(3, P.rhit * sc * 0.34), arm = Math.max(6, P.rhit * sc * 0.8);
+  ctx.strokeStyle = C("--series-2"); ctx.lineWidth = 2;
+  for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    ctx.beginPath(); ctx.moveTo(DX, DY); ctx.lineTo(DX + sx * arm, DY + sy * arm * 0.55); ctx.stroke();
+    ctx.beginPath(); ctx.arc(DX + sx * arm, DY + sy * arm * 0.55, body * 0.7, 0, 7); ctx.stroke();
+  }
+  ctx.fillStyle = C("--series-2");
+  ctx.beginPath(); ctx.arc(DX, DY, body, 0, 7); ctx.fill();
+
+  // Cannon.
+  ctx.fillStyle = C("--text-secondary");
+  ctx.beginPath(); ctx.arc(X(0), Y(P.h0), 5, 0, 7); ctx.fill();
+
+  SIM._nStuck = nStuck;
+}
+
+function updateHud() {
+  const d = SIM.data, hud = document.getElementById("simHud");
+  const sl = document.getElementById("speedLab");
+  if (sl) sl.textContent = (SIM.speed * 100).toFixed(0) + "% speed";
+  if (!hud) return;
+  hud.innerHTML = "";
+  if (!d) { hud.textContent = "—"; return; }
+  const f = Math.max(0, Math.min(d.total - 1, Math.floor(SIM.frame)));
+  const t = f * SIM.dt;
+  const sep = Math.hypot((isFinite(d.rx[f]) ? d.rx[f] : d.burstXY ? d.burstXY[0] : 0) - d.dx[f],
+                         (isFinite(d.ry[f]) ? d.ry[f] : d.burstXY ? d.burstXY[1] : 0) - d.dy[f]);
+  const parts = [`t = ${(t * 1000).toFixed(0)} ms`];
+  if (d.burst < 0) parts.push(d.ground ? "no burst — round hit the ground" : "no burst — fuse never tripped");
+  else if (f < d.nPre) parts.push(`closing · ${sep.toFixed(2)} m to trigger at ${P.rfuse.toFixed(2)} m`);
+  else parts.push(`BURST +${((f - d.nPre) * SIM.dt * 1000).toFixed(0)} ms`);
+  const b = document.createElement("b");
+  b.textContent = d.burst >= 0 && f >= d.nPre
+    ? `${SIM._nStuck || 0} / ${d.M} stuck` + (d.total_N > d.M ? ` (of ${d.total_N.toLocaleString()})` : "")
+    : "";
+  hud.appendChild(document.createTextNode(parts.join("  ·  ") + (b.textContent ? "  ·  " : "")));
+  hud.appendChild(b);
+}
+
+function syncScrub() {
+  const s = document.getElementById("scrubRng");
+  if (s && SIM.data) { s.max = String(SIM.data.total - 1); s.value = String(Math.floor(SIM.frame)); }
+}
+
+function simTick(ts) {
+  if (!SIM.playing) return;
+  const dtReal = SIM.last ? Math.min((ts - SIM.last) / 1000, 0.05) : 0;
+  SIM.last = ts;
+  if (SIM.data) {
+    SIM.frame += dtReal * SIM.speed / SIM.dt;
+    if (SIM.frame >= SIM.data.total - 1) { SIM.frame = SIM.data.total - 1; setPlaying(false); }
+  }
+  syncScrub(); drawSim(); updateHud();
+  if (SIM.playing) SIM.raf = requestAnimationFrame(simTick);
+}
+
+function setPlaying(on) {
+  SIM.playing = on; SIM.last = 0;
+  const b = document.getElementById("playBtn");
+  if (b) b.textContent = on ? "❚❚ Pause" : "▶ Play";
+  cancelAnimationFrame(SIM.raf);
+  if (on) SIM.raf = requestAnimationFrame(simTick);
+}
+
+// Rebuilding is a full re-integration, so debounce it behind slider drags.
+// Monte Carlo is the expensive one, so it rides the same debounce as the sim.
+function runMC() {
+  const mc = monteCarlo(P, AIM);
+  const nominal = LAST_RES ? LAST_RES.cpa : NaN;
+  document.getElementById("mcRate").textContent = fmt(mc.rate * 100, 1);
+  const spread = P.sigTheta > 0 || P.sigV0 > 0;
+  document.getElementById("mcCap").textContent = spread
+    ? `over ${mc.n.toLocaleString()} shots with ${fmt(P.sigTheta, 1)} mrad aim error and `
+      + `${fmt(P.sigV0, 1)}% muzzle-velocity spread. Median miss ${fmt(mc.p50)} m, `
+      + `90th percentile ${fmt(mc.p90)} m.`
+    : `with zero dispersion every shot is identical — this is just the nominal shot repeated. `
+      + `Dial in aim error and muzzle-velocity spread to see the real distribution.`;
+  fillTiles("mcTiles", [
+    ["Shots simulated",  mc.n.toLocaleString(),   ""],
+    ["Best miss",        fmt(mc.best),            "m"],
+    ["Median miss",      fmt(mc.p50),             "m"],
+    ["90th pct miss",    fmt(mc.p90),             "m"],
+    ["Worst miss",       fmt(mc.worst),           "m"],
+    ["Shots falling short", mc.short.toLocaleString(), ""],
+  ]);
+  drawHistogram(mc, nominal);
+}
+
+function scheduleSim() {
+  clearTimeout(SIM.timer);
+  SIM.timer = setTimeout(() => {
+    const keep = SIM.data && SIM.data.total > 1 ? SIM.frame / (SIM.data.total - 1) : 0;
+    buildSim();
+    if (SIM.data) SIM.frame = keep * (SIM.data.total - 1);
+    syncScrub(); drawSim(); updateHud();
+    runMC();
+  }, 170);
+}
+
+/* ===================================================================
+   8. WIRE UP
+   =================================================================== */
+(function buildControls() {
+  const aside = document.getElementById("controls");
+  let lastGroup = null, box = null;
+  const boxes = {};
+
+  // Mode switches first — they change the meaning of everything below them.
+  function addSeg(title, opts, cur, onPick, note) {
+    const g = document.createElement("div"); g.className = "group";
+    const h = document.createElement("h2"); h.textContent = title; g.appendChild(h);
+    const seg = document.createElement("div"); seg.className = "seg";
+    opts.forEach(([k, lab]) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = lab;
+      b.setAttribute("aria-pressed", String(cur === k));
+      b.addEventListener("click", () => {
+        onPick(k);
+        seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+        render();
+      });
+      seg.appendChild(b);
+    });
+    g.appendChild(seg);
+    const n = document.createElement("p");
+    n.style.cssText = "font-size:11px;color:var(--text-muted);margin:7px 0 0;line-height:1.45";
+    n.textContent = note;
+    g.appendChild(n);
+    aside.appendChild(g);
+  }
+
+  addSeg("Aim scheme", [["los", "Line of sight"], ["opt", "Optimal elevation"]], AIM,
+    k => { AIM = k; },
+    "Line of sight = no holdover, barrel pointed straight at the drone. Optimal = the elevation that minimises the miss, i.e. the floor on required radius.");
+
+  addSeg("Drag model", [["re", "C_d(Re)"], ["const", "Fixed C_d"]], CDMODE,
+    k => { CDMODE = k; },
+    "C_d(Re) uses the Morrison sphere correlation, re-evaluated every integration stage. Your round sits near the drag crisis, so a fixed C_d is materially wrong for it.");
+
+  PARAMS.forEach(p => {
+    if (p.g !== lastGroup) {
+      box = document.createElement("div"); box.className = "group";
+      const h = document.createElement("h2"); h.textContent = p.g; box.appendChild(h);
+      aside.appendChild(box); lastGroup = p.g;
+    }
+    const c = document.createElement("div"); c.className = "ctl";
+    const row = document.createElement("div"); row.className = "row";
+    const lab = document.createElement("label"); lab.textContent = p.l; lab.htmlFor = "n_" + p.k;
+    const val = document.createElement("div"); val.className = "val";
+    const num = document.createElement("input");
+    num.type = "number"; num.id = "n_" + p.k; num.min = p.min; num.max = p.max; num.step = p.step; num.value = p.v;
+    const un = document.createElement("span"); un.className = "unit"; un.textContent = p.u;
+    val.appendChild(num); val.appendChild(un);
+    row.appendChild(lab); row.appendChild(val); c.appendChild(row);
+
+    const rng = document.createElement("input");
+    rng.type = "range"; rng.min = p.min; rng.max = p.max; rng.step = p.step; rng.value = p.v;
+    c.appendChild(rng);
+
+    let chipEls = [];
+    const apply = v => {
+      P[p.k] = v; num.value = v; rng.value = v;
+      chipEls.forEach(([b, pv]) => b.setAttribute("aria-pressed", String(Math.abs(pv - v) < 1e-9)));
+      render();
+    };
+
+    // Standard sphere-packing regimes, so nobody has to look them up.
+    if (p.presets) {
+      const chips = document.createElement("div"); chips.className = "chips";
+      p.presets.forEach(([lab, pv]) => {
+        const b = document.createElement("button"); b.type = "button"; b.textContent = lab;
+        b.title = lab + " = " + pv;
+        b.setAttribute("aria-pressed", String(Math.abs(pv - p.v) < 1e-9));
+        b.addEventListener("click", () => apply(pv));
+        chips.appendChild(b); chipEls.push([b, pv]);
+      });
+      c.appendChild(chips);
+    }
+
+    const clamp = v => Math.max(p.min, Math.min(p.max, isFinite(v) ? v : p.v));
+    SETTERS[p.k] = v => apply(clamp(v));
+    rng.addEventListener("input", () => apply(parseFloat(rng.value)));
+    num.addEventListener("change", () => apply(clamp(parseFloat(num.value))));
+    box.appendChild(c);
+    boxes[p.g] = box;
+  });
+
+  // Derived payload read-out, parked under the inputs that produce it.
+  if (boxes["Projectile"]) {
+    const d = document.createElement("div");
+    d.className = "derived"; d.id = "derived";
+    boxes["Projectile"].appendChild(d);
+  }
+})();
+
+function wireTableToggle(btnId, wrapId) {
+  const b = document.getElementById(btnId), w = document.getElementById(wrapId);
+  b.addEventListener("click", () => {
+    w.hidden = !w.hidden;
+    b.textContent = w.hidden ? "Show data table" : "Hide data table";
+  });
+}
+wireTableToggle("trajTblBtn", "trajTbl");
+wireTableToggle("sweepTblBtn", "sweepTbl");
+wireTableToggle("ballTblBtn", "ballTbl");
+wireTableToggle("mcTblBtn", "mcTbl");
+
+/* ---- Live sim controls ---- */
+document.getElementById("playBtn").addEventListener("click", () => {
+  if (SIM.data && SIM.frame >= SIM.data.total - 1) SIM.frame = 0;
+  setPlaying(!SIM.playing);
+});
+document.getElementById("replayBtn").addEventListener("click", () => {
+  SIM.frame = 0; syncScrub(); drawSim(); updateHud(); setPlaying(true);
+});
+const zoomBtn = document.getElementById("zoomBtn");
+zoomBtn.addEventListener("click", () => {
+  SIM.zoom = !SIM.zoom;
+  zoomBtn.setAttribute("aria-pressed", String(SIM.zoom));
+  zoomBtn.textContent = SIM.zoom ? "Zoom out" : "Zoom to burst";
+  drawSim();
+});
+document.getElementById("speedRng").addEventListener("input", ev => {
+  SIM.speed = parseFloat(ev.target.value) / 100; updateHud();
+});
+document.getElementById("scrubRng").addEventListener("input", ev => {
+  setPlaying(false); SIM.frame = parseFloat(ev.target.value); drawSim(); updateHud();
+});
+
+const themeBtn = document.getElementById("themeBtn");
+function isDark() {
+  const t = document.documentElement.getAttribute("data-theme");
+  return t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function syncThemeBtn() { themeBtn.textContent = isDark() ? "Light mode" : "Dark mode"; }
+themeBtn.addEventListener("click", () => {
+  document.documentElement.setAttribute("data-theme", isDark() ? "light" : "dark");
+  syncThemeBtn();
+  render();     // re-read CSS vars for tooltip keys
+  drawSim();    // canvas colours aren't CSS-driven, so repaint now
+});
+syncThemeBtn();
+
+render();
+// First build runs immediately — the debounce is only for slider drags.
+clearTimeout(SIM.timer);
+buildSim(); syncScrub(); drawSim(); updateHud(); runMC();
+</script>
+</body>
+</html>
