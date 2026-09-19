@@ -521,7 +521,8 @@ const PARAMS = [
   { g:"Engagement",   k:"h0",    l:"Muzzle height",           u:"m",     min:0,    max:8,   step:0.1,   v:1.5   },
   { g:"Engagement",   k:"vt",    l:"Drone closing speed",     u:"m/s",   min:0,    max:50,  step:0.5,   v:10    },
 
-  { g:"Cannon",       k:"v0",    l:"Muzzle velocity",         u:"m/s",   min:10,   max:400, step:1,     v:60    },
+  { g:"Cannon",       k:"v0",     l:"Muzzle velocity",        u:"m/s", min:10,  max:400, step:1,    v:60   },
+  { g:"Cannon",       k:"theta0", l:"Launch angle from origin",u:"°",   min:-20, max:85,  step:0.1,  v:31.7 },
 
   { g:"Projectile",   k:"dia",   l:"Round diameter",          u:"mm",    min:10,   max:200, step:1,     v:60    },
   { g:"Projectile",   k:"dball", l:"Gumball diameter",        u:"mm",    min:2,    max:60,  step:0.5,   v:12    },
@@ -795,15 +796,35 @@ function speedAt(p, theta, tTarget) {
 
 function losAngle(p) { return Math.atan2(p.H0 - p.h0, p.d0); }
 
-// Golden-section search for the elevation that minimises closest approach.
-function optimalTheta(p) {
+// The single source of truth for where the barrel points.
+//   los -> straight at the drone, no holdover
+//   opt -> numerically minimise the miss (the floor on required radius)
+//   man -> whatever elevation you dial in
+function aimTheta(p, aim) {
+  if (aim === "man") return p.theta0 * Math.PI / 180;
+  if (aim === "opt") return optimalTheta(p);
+  return losAngle(p);
+}
+
+/**
+ * Golden-section search for the elevation that minimises closest approach.
+ * `seed` warm-starts from a neighbouring range's answer: optimal elevation
+ * varies smoothly with range, so the 65-point sweep can bracket tightly
+ * instead of re-searching the full envelope 65 times over.
+ */
+function optimalTheta(p, seed) {
   const t0 = losAngle(p);
   let lo = t0 - 0.08, hi = Math.min(t0 + 1.15, 1.45);
+  if (seed !== undefined && isFinite(seed)) {
+    lo = Math.max(t0 - 0.08, seed - 0.12);
+    hi = Math.min(1.45, seed + 0.12);
+  }
   const f = th => { const r = simulate(p, th, 0.002, false); return r ? r.cpa : Infinity; };
   const gr = (Math.sqrt(5) - 1) / 2;
   let c = hi - gr * (hi - lo), d = lo + gr * (hi - lo);
   let fc = f(c), fd = f(d);
-  for (let i = 0; i < 44; i++) {
+  const iters = seed !== undefined ? 16 : 44;
+  for (let i = 0; i < iters; i++) {
     if (fc < fd) { hi = d; d = c; fd = fc; c = hi - gr * (hi - lo); fc = f(c); }
     else         { lo = c; c = d; fc = fd; d = lo + gr * (hi - lo); fd = f(d); }
     if (hi - lo < 1e-5) break;
@@ -811,8 +832,8 @@ function optimalTheta(p) {
   return 0.5 * (lo + hi);
 }
 
-function solve(p, aim, keepPath) {
-  const theta = aim === "opt" ? optimalTheta(p) : losAngle(p);
+function solve(p, aim, keepPath, seed) {
+  const theta = (aim === "opt" && seed !== undefined) ? optimalTheta(p, seed) : aimTheta(p, aim);
   const r = simulate(p, theta, keepPath ? 0.0008 : 0.002, keepPath);
   if (!r) return null;
   r.reqR = Math.max(0, r.cpa - p.rhit);
@@ -941,6 +962,22 @@ function showTip(cx, cy, header, rows) {
 const hideTip = () => { tipEl.style.opacity = "0"; };
 const cssVar = n => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(n).trim();
 
+// Resolving a custom property forces a style recalc, so never do it inside a
+// draw loop: at 420 gumballs the per-ball lookups cost ~27k recalcs a second.
+// Snapshot the palette once per paint instead, and drop it when the theme flips.
+let PAL = null;
+const PAL_KEYS = ["--page", "--surface-1", "--grid", "--axis", "--text-muted",
+                  "--text-primary", "--text-secondary",
+                  "--series-1", "--series-2", "--series-3", "--status-critical"];
+function palette() {
+  if (PAL) return PAL;
+  const cs = getComputedStyle(document.querySelector(".viz-root"));
+  PAL = {};
+  PAL_KEYS.forEach(k => PAL[k] = cs.getPropertyValue(k).trim());
+  return PAL;
+}
+const invalidatePalette = () => { PAL = null; };
+
 /* ===================================================================
    4. CHART — engagement geometry (2 series, equal aspect)
    =================================================================== */
@@ -1043,10 +1080,11 @@ function drawSweep(curRes) {
 
   const lo = Math.max(2, P.d0 * 0.08), hi = Math.max(P.d0 * 2, lo + 10), N = 64;
   const pts = [];
+  let seed;   // carried between points so "optimal" mode re-searches cheaply
   for (let i = 0; i <= N; i++) {
     const d = lo + (hi - lo) * i / N;
-    const r = solve(Object.assign({}, P, { d0: d }), AIM, false);
-    if (r) pts.push({ d, r: r.reqR });
+    const r = solve(Object.assign({}, P, { d0: d }), AIM, false, seed);
+    if (r) { pts.push({ d, r: r.reqR }); seed = r.theta; }
   }
   if (!pts.length) return;
 
@@ -1148,7 +1186,7 @@ function gauss(rnd) {
 
 function monteCarlo(p, aim) {
   const n = Math.max(20, Math.min(3000, Math.round(p.nShots)));
-  const base = aim === "opt" ? optimalTheta(p) : losAngle(p);
+  const base = aimTheta(p, aim);
   const N = payload(p).N, rnd = mulberry32(0x9E3779B9);
   const misses = [];
   let hits = 0, short = 0;
@@ -1590,7 +1628,7 @@ function stepBalls(st, M, c, dt, stuck, dvx, dvy) {
 
 function buildSim() {
   const p = P;
-  const theta = AIM === "opt" ? optimalTheta(p) : losAngle(p);
+  const theta = aimTheta(p, AIM);
   const C = roundCtx(p), BC = ballCtx(p), kb = ballK(p, p.ve), g = p.grav;
   const dz = p.H0 - p.h0, Rs = Math.hypot(p.d0, dz);
   if (Rs < 1e-9) { SIM.data = null; return; }
@@ -1658,7 +1696,7 @@ function buildSim() {
     const deb = new Float64Array(DEBRIS_N * 6);
     const debFree = new Int32Array(DEBRIS_N).fill(-1);
     const ddirs = sphereDirs(DEBRIS_N);
-    debXYZ = new Float32Array(nPost * DEBRIS_N * 3);
+    // Allocated lazily on the first hit — a clean pass should cost nothing.
     // Distance the drone has ALREADY covered when phase 2 opens. Starting this
     // at zero let it fly a second full slant range and end up behind the cannon
     // and underground — the clamp never bound at default settings.
@@ -1718,6 +1756,7 @@ function buildSim() {
       // First contact fouls the rotors: the airframe sheds fragments and stops flying.
       if (kill < 0 && struckNow) {
         kill = f;
+        debXYZ = new Float32Array(nPost * DEBRIS_N * 3);
         for (let j = 0; j < DEBRIS_N; j++) {
           const o = j * 6;
           deb[o] = Dx; deb[o + 1] = Dy; deb[o + 2] = dst[2];
@@ -1785,7 +1824,8 @@ function drawSim() {
   const cv = document.getElementById("simCanvas");
   if (!cv) return;
   const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
-  const C = n => cssVar(n);
+  const pal = palette();
+  const C = n => pal[n];
   ctx.fillStyle = C("--page"); ctx.fillRect(0, 0, W, H);
   const d = SIM.data;
   if (!d) return;
@@ -2059,9 +2099,16 @@ function scheduleSim() {
     aside.appendChild(g);
   }
 
-  addSeg("Aim scheme", [["los", "Line of sight"], ["opt", "Optimal elevation"]], AIM,
-    k => { AIM = k; },
-    "Line of sight = no holdover, barrel pointed straight at the drone. Optimal = the elevation that minimises the miss, i.e. the floor on required radius.");
+  addSeg("Aim scheme", [["los", "Line of sight"], ["opt", "Optimal"], ["man", "Manual angle"]], AIM,
+    k => {
+      // Seed the manual angle with whatever the barrel was already doing, so
+      // switching modes never jumps the shot.
+      if (k === "man" && AIM !== "man" && SETTERS.theta0) {
+        SETTERS.theta0(+(aimTheta(P, AIM) * 180 / Math.PI).toFixed(1));
+      }
+      AIM = k;
+    },
+    "Line of sight = no holdover, barrel straight at the drone. Optimal = the elevation that minimises the miss, i.e. the floor on required radius. Manual = you set the launch angle and live with it.");
 
   addSeg("Drag model", [["re", "C_d(Re)"], ["const", "Fixed C_d"]], CDMODE,
     k => { CDMODE = k; },
@@ -2175,6 +2222,7 @@ function isDark() {
 function syncThemeBtn() { themeBtn.textContent = isDark() ? "Light mode" : "Dark mode"; }
 themeBtn.addEventListener("click", () => {
   document.documentElement.setAttribute("data-theme", isDark() ? "light" : "dark");
+  invalidatePalette();
   syncThemeBtn();
   render();     // re-read CSS vars for tooltip keys
   drawSim();    // canvas colours aren't CSS-driven, so repaint now
