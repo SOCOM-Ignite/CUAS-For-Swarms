@@ -262,10 +262,11 @@
           <span class="item"><span class="key" style="background:var(--series-1)"></span>Round</span>
           <span class="item"><span class="key" style="background:var(--series-2)"></span>Drone</span>
           <span class="item"><span class="key" style="background:var(--series-3)"></span>Gumballs</span>
+          <span class="item"><span class="key" style="background:var(--series-2);height:5px;width:5px;border-radius:50%"></span>Debris</span>
         </div>
       </div>
       <canvas class="sim" id="simCanvas" width="1520" height="980"
-              role="img" aria-label="Animated replay of the round flying out, bursting, and the gumball shell reaching the drone"></canvas>
+              role="img" aria-label="Animated replay of the engagement: the round flies out under drag, the fuse trips, a shell of gumballs expands, and on contact the drone sheds debris and falls. The status line below reports the outcome in text."></canvas>
       <div class="simbar">
         <button class="ghost" type="button" id="playBtn">▶ Play</button>
         <button class="ghost" type="button" id="replayBtn">↻ Replay</button>
@@ -273,7 +274,7 @@
         <label>Slow-mo <input type="range" id="speedRng" min="1" max="60" step="1" value="10" style="width:90px"></label>
         <span class="hud" id="speedLab"></span>
         <input type="range" class="scrub" id="scrubRng" min="0" max="100" step="1" value="0" aria-label="Scrub through the engagement">
-        <span class="hud" id="simHud"></span>
+        <span class="hud" id="simHud" role="status" aria-live="polite" aria-atomic="true"></span>
       </div>
     </section>
 
@@ -376,18 +377,35 @@
 
   <h4>Target break-up — what is and isn't physical here</h4>
   On first gumball contact the drone sheds <b>16 fragments</b> and stops flying. Be clear about what that
-  represents: a 12 mm gumball arriving at 29 m/s carries only about <b>0.4 J</b>, which is nowhere near enough
-  to shatter an airframe. It is, however, comfortably enough to destroy a spinning prop and foul a rotor. So
+  represents. Impact energy has to be reckoned in the drone's frame, not the burst frame: a gumball leaves
+  the shell with ~29 m/s of residual ejection speed, but it also carries the round's ~46 m/s forward velocity
+  and meets a drone closing on it, which puts the actual impact at <b>~63 m/s</b> — the figure the
+  "Impact speed on drone" tile reports. At 0.95 g that is <b>~1.9 J</b>
+  (½ · 0.00095 kg · 63² m²/s²), not the 0.4 J an ejection-frame reading would suggest. Still nowhere near the
+  hundreds of joules needed to break an airframe, and still comfortably enough to destroy a spinning
+  propeller and foul a rotor — the conclusion is unchanged, but the number is now the one the page renders. So
   the modelled event is <em>rotor strike → prop fragments shed → loss of lift → tumbling ballistic fall</em>,
   not a detonation. The debris speed is a free parameter precisely because it is the one part of this that is
   a visual choice rather than a derived quantity.
   <br><br>
-  The <em>fall</em>, though, is real physics: the wreck is integrated as an unpowered body with your drone
-  mass and wreck drag coefficient, fragments get the standard mass-scaling law
-  (<code>A/m</code> rises by N<sup>1/3</sup>, so debris decelerates faster than the airframe it came off), and
-  gumballs already stuck to the drone ride it down. Not modelled: autorotation, partial-thrust recovery on the
-  remaining rotors, and any flight-controller reaction — all of which would make a real quadcopter's descent
-  messier and slower than the clean ballistic arc drawn here.
+  The <em>fall</em>, though, is real physics. <b>Mass is conserved across the break-up:</b> the fragments carry
+  your shed percentage of the airframe between them and the wreck keeps the rest, so the post-kill system
+  weighs exactly what the drone did. Fragment frontal area follows geometric scaling A ∝ m<sup>2/3</sup>, so a
+  fragment's A/m exceeds the intact drone's by (N/shed)<sup>1/3</sup> and debris bleeds speed faster than the
+  airframe it came off; the wreck keeps full airframe area against reduced mass, which is right, because what
+  it shed was light high-area propellers. Gumballs already stuck ride the wreck down, and nothing falls
+  through the floor.
+  <br><br>
+  <b>C<sub>d</sub> is pinned constant for the wreck and its debris, deliberately</b> — the Morrison
+  correlation describes a <em>smooth sphere</em>, and a tumbling airframe and a shattered prop are
+  emphatically not spheres. The wreck is also sized from its own airframe diameter rather than from
+  r<sub>hit</sub>: r<sub>hit</sub> is a statistical hit criterion bundling fuzing and sticking margin, and has
+  no business setting a ballistic coefficient.
+  <br><br>
+  Not modelled: autorotation, partial-thrust recovery on the surviving rotors, and any flight-controller
+  reaction — all of which would make a real quadcopter's descent messier and slower than the clean arc drawn
+  here. Break-up energy is reported in the sidebar and flagged when it exceeds what a shattering propeller
+  could plausibly release.
 
   <h4>Drag law</h4>
   In <code>C_d(Re)</code> mode the drag coefficient is the Morrison (2013) smooth-sphere correlation,
@@ -453,11 +471,16 @@
   measured about the cloud's own centroid — not the burst point, since the cloud keeps the round's forward
   velocity.
   <br><br>
-  <b>Expect the sim to report slightly more hits than the closed form.</b> The λ formula treats the encounter
-  as a single instant, with the drone meeting a shell of radius m. The sim lets the drone fly <em>through</em>
-  the expanding shell over tens of milliseconds, sweeping a tube rather than presenting a disc, so it picks up
-  balls the snapshot calculation misses. Treat λ as a conservative lower bound and the sim as the better
-  estimate — and treat a single deterministic run as one sample, not a probability.
+  <b>The sim and the λ formula will not agree exactly, and neither is a strict bound on the other.</b> λ
+  treats the encounter as a single instant — a drone meeting an infinitely thin shell of radius m. The sim
+  departs from that in two directions at once. It lets the drone traverse a shell of <em>finite</em> thickness
+  over several milliseconds, which picks up balls the snapshot misses; but since the break-up feature landed,
+  first contact also stops the drone dead and drops it out of the cloud, which cuts off accretion the snapshot
+  implicitly allows. (An earlier version of this note claimed the drone sweeps a tube and that λ is therefore
+  a conservative lower bound. That was written before the target could be downed, and the tube argument no
+  longer survives a drone that stops flying on the first hit.) In practice the sim still tends to run a little
+  above λ at default settings — 2 of 80 against λ = 0.82 — but treat that as one deterministic sample of a
+  stochastic quantity, not as a probability, and not as a bound in either direction.
 
   <h4>Model</h4>
   Wad integrated with RK4 under gravity plus quadratic drag
@@ -468,8 +491,9 @@
   <code>max(0, CPA − r<sub>hit</sub>)</code>.
 
   <h4>Assumptions worth stating in your writeup</h4>
-  No wind or crosswind. No lift/Magnus (the wad is not spinning). Constant air density.
-  The drone does not maneuver or react. Sphere drag coefficient is treated as constant, though
+  No crosswind (head/tailwind and updraft are modelled). No lift/Magnus on the round (it is not spinning).
+  Constant air density. The drone holds a straight constant-speed course and never manoeuvres or evades; it
+  only departs that course once it is hit, at which point it becomes an unpowered falling body. Sphere drag coefficient is treated as constant, though
   in reality C<sub>d</sub> varies with Reynolds number — at these speeds a smooth sphere sits near
   0.47 but drops sharply through the drag crisis, so treat C<sub>d</sub> as a tunable you should
   measure. Detonation is assumed to occur exactly at closest approach (a perfect proximity fuse);
@@ -523,10 +547,12 @@ const PARAMS = [
   { g:"Environment",  k:"nu",    l:"Air kinematic viscosity", u:"µm²/s", min:5,    max:40,  step:0.1,   v:15.1  },
   { g:"Environment",  k:"grav",  l:"Gravity",                 u:"m/s²",  min:0,    max:20,  step:0.01,  v:9.81  },
 
-  { g:"Target",       k:"rhit",   l:"Effective hit radius",   u:"m",  min:0,   max:5,    step:0.05, v:0.25 },
-  { g:"Target",       k:"mDrone", l:"Drone mass",             u:"g",  min:50,  max:8000, step:10,   v:900  },
-  { g:"Target",       k:"CdDrone",l:"Wreck drag coeff.",      u:"",   min:0.1, max:2.0,  step:0.05, v:1.0  },
-  { g:"Target",       k:"vDebris",l:"Break-up debris speed",  u:"m/s",min:0,   max:40,   step:0.5,  v:4    },
+  { g:"Target",       k:"rhit",   l:"Effective hit radius",    u:"m",  min:0,    max:5,    step:0.05, v:0.25 },
+  { simOnly:true, g:"Target",       k:"dDrone", l:"Airframe diameter",       u:"m",  min:0.05, max:2.0,  step:0.01, v:0.35 },
+  { simOnly:true, g:"Target",       k:"mDrone", l:"Drone mass",              u:"g",  min:100,  max:8000, step:10,   v:900  },
+  { simOnly:true, g:"Target",       k:"CdDrone",l:"Wreck/debris drag coeff.",u:"",   min:0.1,  max:2.0,  step:0.05, v:1.0  },
+  { simOnly:true, g:"Target",       k:"shed",   l:"Mass shed as debris",     u:"%",  min:1,    max:60,   step:1,    v:25   },
+  { simOnly:true, g:"Target",       k:"vDebris",l:"Break-up debris speed",   u:"m/s",min:0,    max:20,   step:0.5,  v:4    },
 
   { g:"Blast radius", k:"medR",  l:"Median blast radius",     u:"m",     min:0.05, max:10,  step:0.05,  v:0.50  },
   { g:"Blast radius", k:"sigma", l:"Lognormal σ (log-space)", u:"",      min:0.01, max:1.5, step:0.01,  v:0.35  },
@@ -578,9 +604,12 @@ function cdSphere(Re) {
 }
 
 // Everything a drag integration needs: geometry, air, wind, and the Cd policy.
-function makeCtx(p, D, AoverM, cd0) {
+// forceConstCd pins Cd for bodies the sphere correlation has no business
+// describing — a tumbling airframe or a shattered prop is not a smooth sphere.
+function makeCtx(p, D, AoverM, cd0, forceConstCd) {
   return { D, AoverM, rho: p.rho, nu: p.nu * 1e-6, cd0,
-           useRe: CDMODE === "re", wx: p.windX, wy: p.windY, g: p.grav };
+           useRe: forceConstCd ? false : (CDMODE === "re"),
+           wx: p.windX, wy: p.windY, g: p.grav };
 }
 function roundCtx(p) {
   const pl = payload(p);
@@ -591,18 +620,42 @@ function ballCtx(p) {
   const A = Math.PI * d * d / 4, m = Math.PI / 6 * d * d * d * p.rhoGum;
   return makeCtx(p, d, m > 0 ? A / m : 0, p.CdBall);
 }
-// The drone as a falling body once its rotors are fouled, plus the fragments it
-// sheds. Fragment area/mass follows the standard mass-scaling law: split a body
-// into N pieces and each piece's A/m rises by N^(1/3), so debris decelerates
-// faster than the wreck it came off.
+/**
+ * The drone as a falling body once its rotors are fouled, plus the fragments
+ * it sheds.
+ *
+ * MASS IS CONSERVED across the break-up: the fragments carry `shed` percent of
+ * the airframe between them and the wreck keeps the remainder. Fragment frontal
+ * area follows geometric scaling A ∝ m^(2/3), so a fragment's A/m exceeds the
+ * intact drone's by (N/shed)^(1/3) and debris bleeds speed faster than the
+ * wreck it came off. The wreck keeps the full airframe area against a reduced
+ * mass, which is right: what it shed was light, high-area propellers.
+ *
+ * Cd is PINNED CONSTANT for both, deliberately. The Morrison correlation
+ * describes a smooth sphere; a tumbling airframe and a shattered prop are
+ * emphatically not spheres. Letting it apply here put the wreck past the drag
+ * crisis at Cd ≈ 0.12 and made the drag-coefficient slider do nothing at all.
+ *
+ * Sized from the airframe diameter, NOT from rhit — rhit is a statistical hit
+ * criterion that bundles fuzing and sticking margin, and has no business
+ * setting a ballistic coefficient.
+ */
 const DEBRIS_N = 16;
+function droneMasses(p) {
+  const m = p.mDrone / 1000;
+  const f = Math.min(0.95, Math.max(0.001, p.shed / 100));
+  return { mTotal: m, mWreck: m * (1 - f), mFrag: m * f / DEBRIS_N, f };
+}
 function droneCtx(p) {
-  const m = p.mDrone / 1000, A = Math.PI * p.rhit * p.rhit;
-  return makeCtx(p, 2 * p.rhit, m > 0 ? A / m : 0, p.CdDrone);
+  const { mWreck } = droneMasses(p);
+  const A = Math.PI * p.dDrone * p.dDrone / 4;
+  return makeCtx(p, p.dDrone, mWreck > 0 ? A / mWreck : 0, p.CdDrone, true);
 }
 function debrisCtx(p) {
-  const c = droneCtx(p), s = Math.cbrt(DEBRIS_N);
-  return Object.assign({}, c, { AoverM: c.AoverM * s, D: c.D / s });
+  const { mTotal, mFrag } = droneMasses(p);
+  const A0 = Math.PI * p.dDrone * p.dDrone / 4;
+  const AF = A0 * Math.pow(mFrag / mTotal, 2 / 3);
+  return makeCtx(p, p.dDrone * Math.sqrt(AF / A0), mFrag > 0 ? AF / mFrag : 0, p.CdDrone, true);
 }
 
 const cdOf = (c, sp) => (c.useRe && c.nu > 0) ? cdSphere(sp * c.D / c.nu) : c.cd0;
@@ -802,13 +855,14 @@ function dispersal(p, miss, vRel) {
   const Rmax   = (kb > 0 && ratio > 1) ? Math.log(ratio) / kb : (ratio > 1 ? Infinity : 0);
   const tLead  = (kb > 0 && p.ve > 0) ? (Math.exp(kb * miss) - 1) / (kb * p.ve)
                                       : (p.ve > 0 ? miss / p.ve : Infinity);
-  const vArr   = p.ve * Math.exp(-kb * miss);
+  const vEject = p.ve * Math.exp(-kb * miss);          // ejection speed left at contact
+  const vArr   = Math.hypot(vEject, vRel);             // ...vs a drone closing head-on
   const lambda = miss > 1e-9 ? N * p.rhit * p.rhit / (4 * miss * miss) : N;
   const dMin   = ratio > 1.0000001
     ? 0.75 * p.rho * p.CdBall * miss / (p.rhoGum * Math.log(ratio)) * 1000 : Infinity;
 
   return {
-    N, kb, Reff, Rmax, tLead, vArr, lambda, dMin,
+    N, kb, Reff, Rmax, tLead, vArr, vEject, lambda, dMin,
     pFrag: 1 - Math.exp(-lambda),
     // Trigger radius must also cover the distance closed during fuse latency.
     standoff: isFinite(tLead) ? (tLead + p.tfuse / 1000) * vRel : Infinity,
@@ -1267,6 +1321,41 @@ function drawBallChart(miss) {
   buildTable("ballTbl", "Coverage by gumball diameter", ["d (mm)", "N balls", "λ", "P(hit)", "Reaches?"], rows);
 }
 
+// Depends only on the Target sliders, so it can refresh without re-running
+// the trajectory solver, the range sweep or the Monte Carlo.
+function renderTargetPanel() {
+  const dtv = document.getElementById("derivedTarget");
+  if (dtv) {
+    dtv.innerHTML = "";
+    const dm = droneMasses(P);
+    const mFragTot = dm.mFrag * DEBRIS_N;
+    const keDebris = 0.5 * mFragTot * P.vDebris * P.vDebris;
+    const vTerm = Math.sqrt(2 * dm.mWreck * P.grav / (P.rho * P.CdDrone * Math.PI * P.dDrone * P.dDrone / 4));
+    [["Wreck mass",        fmt(dm.mWreck * 1000, 0) + " g"],
+     ["Debris mass (×" + DEBRIS_N + ")", fmt(mFragTot * 1000, 0) + " g"],
+     ["Mass conserved",    fmt((dm.mWreck + mFragTot) * 1000, 0) + " g"],
+     ["Break-up energy",   fmt(keDebris, 2) + " J"],
+     ["Wreck terminal v",  fmt(vTerm, 1) + " m/s"],
+    ].forEach(([a, b]) => {
+      const r = document.createElement("div"); r.className = "d";
+      const x = document.createElement("span"); x.textContent = a;
+      const y = document.createElement("span"); y.textContent = b;
+      r.appendChild(x); r.appendChild(y); dtv.appendChild(r);
+    });
+    // A shattering prop releases its stored rotational energy — a joule or two.
+    // Much past that and the break-up is a cartoon, so say so.
+    if (keDebris > 8) {
+      const w = document.createElement("div"); w.className = "warn";
+      const i = document.createElement("span"); i.className = "ico"; i.textContent = "▲";
+      const t2 = document.createElement("span");
+      t2.textContent = `${fmt(keDebris, 1)} J of break-up energy is well past what a shattering `
+        + `propeller can release (order 1–2 J). The fall is still real physics, but the debris `
+        + `spray is now a visual choice, not a derived one.`;
+      w.appendChild(i); w.appendChild(t2); dtv.appendChild(w);
+    }
+  }
+}
+
 let LAST_RES = null;
 
 function render() {
@@ -1337,6 +1426,8 @@ function render() {
     }
   }
 
+  renderTargetPanel();
+
   // --- Stat tiles ---
   const ph = pHit(res.reqR, P.medR, P.sigma);
   const tiles = [
@@ -1364,7 +1455,7 @@ function render() {
   fillTiles("fragTiles", [
     ["Fuse lead time",        fmt(ds.tLead * 1000, 1),  "ms"],
     ["Burst standoff",        fmt(ds.standoff, 2),      "m"],
-    ["Ball speed on arrival", fmt(ds.vArr, 1),          "m/s"],
+    ["Impact speed on drone", fmt(ds.vArr, 1),          "m/s"],
     ["Max shell reach",       isFinite(ds.Rmax) ? fmt(ds.Rmax, 1) : "∞", "m"],
     ["Expected ball hits λ",  fmt(ds.lambda, 2),        ""],
     ["P(≥1 ball on drone)",   fmt(ds.pFrag * 100, 1),   "%"],
@@ -1456,29 +1547,44 @@ function stepBalls(st, M, c, dt, stuck, dvx, dvy) {
   for (let i = 0; i < M; i++) {
     const o = i * 6;
     if (stuck[i] >= 0) { st[o] += dvx * dt; st[o + 1] += dvy * dt; continue; }
+    // Explicit RK4 goes unstable once k·v·dt approaches ~2.8. Light bodies with
+    // a big A/m (shed prop fragments, most of all) can cross that at slider
+    // extremes, so sub-step rather than hand back NaN.
+    const sp0 = Math.sqrt(Math.pow(st[o + 3] - wx, 2) + Math.pow(st[o + 4] - wy, 2) + st[o + 5] * st[o + 5]);
+    const nSub = Math.min(16, 1 + Math.floor(kk(sp0) * sp0 * dt / 0.35));
+    const h = dt / nSub;
+    for (let q = 0; q < nSub; q++) {
     const x = st[o], y = st[o + 1], z = st[o + 2];
     const vx = st[o + 3], vy = st[o + 4], vz = st[o + 5];
     let rx = vx - wx, ry = vy - wy, rz = vz;
     let sp = Math.sqrt(rx * rx + ry * ry + rz * rz), k = kk(sp);
     const a1x = -k * sp * rx, a1y = -k * sp * ry - g, a1z = -k * sp * rz;
-    const v2x = vx + .5 * dt * a1x, v2y = vy + .5 * dt * a1y, v2z = vz + .5 * dt * a1z;
+    const v2x = vx + .5 * h * a1x, v2y = vy + .5 * h * a1y, v2z = vz + .5 * h * a1z;
     rx = v2x - wx; ry = v2y - wy; rz = v2z;
     sp = Math.sqrt(rx * rx + ry * ry + rz * rz); k = kk(sp);
     const a2x = -k * sp * rx, a2y = -k * sp * ry - g, a2z = -k * sp * rz;
-    const v3x = vx + .5 * dt * a2x, v3y = vy + .5 * dt * a2y, v3z = vz + .5 * dt * a2z;
+    const v3x = vx + .5 * h * a2x, v3y = vy + .5 * h * a2y, v3z = vz + .5 * h * a2z;
     rx = v3x - wx; ry = v3y - wy; rz = v3z;
     sp = Math.sqrt(rx * rx + ry * ry + rz * rz); k = kk(sp);
     const a3x = -k * sp * rx, a3y = -k * sp * ry - g, a3z = -k * sp * rz;
-    const v4x = vx + dt * a3x, v4y = vy + dt * a3y, v4z = vz + dt * a3z;
+    const v4x = vx + h * a3x, v4y = vy + h * a3y, v4z = vz + h * a3z;
     rx = v4x - wx; ry = v4y - wy; rz = v4z;
     sp = Math.sqrt(rx * rx + ry * ry + rz * rz); k = kk(sp);
     const a4x = -k * sp * rx, a4y = -k * sp * ry - g, a4z = -k * sp * rz;
-    st[o]     = x + (dt / 6) * (vx + 2 * v2x + 2 * v3x + v4x);
-    st[o + 1] = y + (dt / 6) * (vy + 2 * v2y + 2 * v3y + v4y);
-    st[o + 2] = z + (dt / 6) * (vz + 2 * v2z + 2 * v3z + v4z);
-    st[o + 3] = vx + (dt / 6) * (a1x + 2 * a2x + 2 * a3x + a4x);
-    st[o + 4] = vy + (dt / 6) * (a1y + 2 * a2y + 2 * a3y + a4y);
-    st[o + 5] = vz + (dt / 6) * (a1z + 2 * a2z + 2 * a3z + a4z);
+    st[o]     = x + (h / 6) * (vx + 2 * v2x + 2 * v3x + v4x);
+    st[o + 1] = y + (h / 6) * (vy + 2 * v2y + 2 * v3y + v4y);
+    st[o + 2] = z + (h / 6) * (vz + 2 * v2z + 2 * v3z + v4z);
+    st[o + 3] = vx + (h / 6) * (a1x + 2 * a2x + 2 * a3x + a4x);
+    st[o + 4] = vy + (h / 6) * (a1y + 2 * a2y + 2 * a3y + a4y);
+    st[o + 5] = vz + (h / 6) * (a1z + 2 * a2z + 2 * a3z + a4z);
+    // Backstop: if it diverged anyway, freeze this body rather than let a NaN
+    // propagate into the drawn positions and the view bounds.
+    if (!isFinite(st[o]) || !isFinite(st[o + 1]) || !isFinite(st[o + 2])) {
+      st[o] = x; st[o + 1] = y; st[o + 2] = z;
+      st[o + 3] = 0; st[o + 4] = 0; st[o + 5] = 0;
+      break;
+    }
+    }
   }
 }
 
@@ -1522,7 +1628,7 @@ function buildSim() {
 
   // ---- Phase 2: the shell ----
   let ballXYZ = null, stuck = null, nPost = 0, shellR = null, shellC = null;
-  let debXYZ = null, kill = -1;
+  let debXYZ = null, kill = -1, swept = false;
   if (burst >= 0) {
     const dirs = sphereDirs(M);
     const st = new Float64Array(M * 6);
@@ -1533,10 +1639,12 @@ function buildSim() {
       st[o + 4] = s[3] + p.ve * dirs[i * 3 + 1];
       st[o + 5] = p.ve * dirs[i * 3 + 2];
     }
-    // Watch until the shell has swept well past the trigger radius.
+    // Window must cover the shell sweeping past the trigger radius AND a downed
+    // drone visibly falling. It is still capped, because a slow shell against a
+    // huge trigger radius can need many seconds — so we also record whether the
+    // shell actually got there (`swept`) and say so rather than implying a miss.
     const tReach = kb > 0 ? (Math.exp(kb * p.rfuse * 1.9) - 1) / (kb * p.ve) : p.rfuse * 1.9 / p.ve;
-    // Long enough for the shell to sweep past AND for a downed drone to visibly fall.
-    nPost = Math.max(600, Math.min(1600, Math.round(Math.max(tReach * 1.6, 0.55) / dt)));
+    nPost = Math.min(3000, Math.max(1100, Math.round(Math.max(tReach * 1.6, 0.55) / dt)));
     ballXYZ = new Float32Array(nPost * M * 3);
     stuck = new Int32Array(M).fill(-1);
     shellR = new Float32Array(nPost);
@@ -1551,7 +1659,17 @@ function buildSim() {
     const debFree = new Int32Array(DEBRIS_N).fill(-1);
     const ddirs = sphereDirs(DEBRIS_N);
     debXYZ = new Float32Array(nPost * DEBRIS_N * 3);
-    let tt = t;
+    // Distance the drone has ALREADY covered when phase 2 opens. Starting this
+    // at zero let it fly a second full slant range and end up behind the cannon
+    // and underground — the clamp never bound at default settings.
+    let flown = p.vt * t;
+    // Nothing falls through the floor: a body that reaches ground level stops there.
+    const clampGround = (arr, n) => {
+      for (let i = 0; i < n; i++) {
+        const o = i * 6;
+        if (arr[o + 1] < 0) { arr[o + 1] = 0; arr[o + 3] = 0; arr[o + 4] = 0; arr[o + 5] = 0; }
+      }
+    };
     for (let f = 0; f < nPost; f++) {
       const base = f * M * 3;
       for (let i = 0; i < M; i++) {
@@ -1567,11 +1685,13 @@ function buildSim() {
         const o = i * 6; cx += st[o]; cy += st[o + 1]; cz += st[o + 2]; nf++;
       }
       if (nf) { cx /= nf; cy /= nf; cz /= nf; } else { cx = burstXY[0]; cy = burstXY[1]; cz = 0; }
-      let rsum = 0;
+      let rsum = 0, rmax = 0;
       for (let i = 0; i < M; i++) {
         if (stuck[i] >= 0) continue;
         const o = i * 6;
-        rsum += Math.hypot(st[o] - cx, st[o + 1] - cy, st[o + 2] - cz);
+        const rr = Math.hypot(st[o] - cx, st[o + 1] - cy, st[o + 2] - cz);
+        rsum += rr;
+        if (rr > rmax) rmax = rr;
       }
       shellR[f] = nf ? rsum / nf : 0;
       shellC[f * 2] = cx; shellC[f * 2 + 1] = cy;
@@ -1579,11 +1699,21 @@ function buildSim() {
       const Dx = dst[0], Dy = dst[1];
       dx.push(Dx); dy.push(Dy); rx.push(NaN); ry.push(NaN);
 
+      // Has the shell overtaken the drone yet? Needed to tell "swept past and
+      // missed" apart from "window ended while still expanding".
+      if (Math.hypot(cx - Dx, cy - Dy, cz - dst[2]) <= rmax) swept = true;
+
       let struckNow = false;
       for (let i = 0; i < M; i++) {
         if (stuck[i] >= 0) continue;
         const o = i * 6, ax = st[o] - Dx, ay = st[o + 1] - Dy, az = st[o + 2] - dst[2];
-        if (ax * ax + ay * ay + az * az <= p.rhit * p.rhit) { stuck[i] = f; struckNow = true; }
+        if (ax * ax + ay * ay + az * az > p.rhit * p.rhit) continue;
+        // Proximity alone is not a hit: gum arriving below the sticking speed
+        // bounces off. This is the same vstick the analytic panel uses, so the
+        // two halves of the page can no longer disagree.
+        const rvx = st[o + 3] - dst[3], rvy = st[o + 4] - dst[4], rvz = st[o + 5] - dst[5];
+        if (Math.sqrt(rvx * rvx + rvy * rvy + rvz * rvz) < p.vstick) continue;
+        stuck[i] = f; struckNow = true;
       }
       // First contact fouls the rotors: the airframe sheds fragments and stops flying.
       if (kill < 0 && struckNow) {
@@ -1609,22 +1739,44 @@ function buildSim() {
       if (kill >= 0) {
         stepBalls(deb, DEBRIS_N, DBC, dt, debFree, 0, 0);
         stepBalls(dst, 1, DRC, dt, droneAlive, 0, 0);   // unpowered wreck
-      } else {
+        clampGround(deb, DEBRIS_N);
+      } else if (flown + p.vt * dt < Rs) {
         dst[0] += dvx * dt; dst[1] += dvy * dt;          // still flying
-      }
-      tt += dt;
+        flown += p.vt * dt;
+      }                                                  // else: reached the muzzle, stop
+      clampGround(dst, 1);                               // powered or not, never below ground
     }
   }
 
   // ---- View bounds (1:1, so only the box matters) ----
-  let x0 = -1.5, x1 = Math.max(p.d0, ...rx.filter(isFinite)) + 1.5;
-  let y0 = -0.5, y1 = Math.max(p.H0, ...ry.filter(isFinite)) + 1.5;
+  // Must cover everything that gets drawn: the round, the drone's whole track
+  // (which now curves down after a kill), and the debris field.
+  const finite = a => a.filter(isFinite);
+  let x0 = Math.min(-1.5, ...finite(dx)), x1 = Math.max(p.d0, ...finite(rx), ...finite(dx)) + 1.5;
+  let y0 = -0.5, y1 = Math.max(p.H0, ...finite(ry), ...finite(dy)) + 1.5;
   if (burstXY) { x1 = Math.max(x1, burstXY[0] + 3); y1 = Math.max(y1, burstXY[1] + 3); }
-  const zb = burstXY ? [burstXY[0] - 4, burstXY[0] + 4, burstXY[1] - 3, burstXY[1] + 3]
+  if (debXYZ && kill >= 0) {
+    for (let f = kill; f < nPost; f += 8) {
+      const db = f * DEBRIS_N * 3;
+      for (let j = 0; j < DEBRIS_N; j++) {
+        const bx = debXYZ[db + j * 3], by = debXYZ[db + j * 3 + 1];
+        if (bx < x0) x0 = bx - 0.5;
+        if (bx > x1) x1 = bx + 0.5;
+        if (by > y1) y1 = by + 0.5;
+      }
+    }
+  }
+  // Zoom box follows the wreck rather than freezing on the burst, so the fall
+  // the longer window exists to show does not immediately leave the frame.
+  const zt = kill >= 0 ? nPre + Math.min(nPost - 1, kill + 400) : nPre;
+  const zcx = burstXY ? (burstXY[0] + (dx[zt] !== undefined ? dx[zt] : burstXY[0])) / 2 : 0;
+  const zcy = burstXY ? (burstXY[1] + (dy[zt] !== undefined ? dy[zt] : burstXY[1])) / 2 : 0;
+  const zh = burstXY && dy[zt] !== undefined ? Math.max(3, Math.abs(burstXY[1] - dy[zt]) * 0.8 + 2.5) : 3;
+  const zb = burstXY ? [zcx - zh * 1.34, zcx + zh * 1.34, zcy - zh, zcy + zh]
                      : [x0, x1, y0, y1];
 
-  SIM.data = { rx, ry, dx, dy, ballXYZ, stuck, shellR, shellC, debXYZ, kill,
-               M, total_N, nPre, nPost, burst,
+  SIM.data = { rx, ry, dx, dy, ballXYZ, stuck, shellR, shellC, debXYZ, kill, swept,
+               trig, M, total_N, nPre, nPost, burst,
                burstXY, ground, total: nPre + nPost, bounds: [x0, x1, y0, y1], zoomBounds: zb };
   SIM.frame = Math.min(SIM.frame, SIM.data.total - 1);
 }
@@ -1727,29 +1879,36 @@ function drawSim() {
   const downed = d.kill >= 0 && pf2 >= d.kill;
   if (downed && d.debXYZ) {
     const db = pf2 * DEBRIS_N * 3;
+    // True physical fragment size (a shed piece of the airframe), floored for
+    // visibility like every other mark — not a hardcoded pixel count.
+    const fr = Math.max(1.9, P.dDrone * Math.cbrt(P.shed / 100 / DEBRIS_N) * sc / 2);
     ctx.fillStyle = C("--series-2");
     for (let j = 0; j < DEBRIS_N; j++) {
       const bx = d.debXYZ[db + j * 3], by = d.debXYZ[db + j * 3 + 1], bz = d.debXYZ[db + j * 3 + 2];
       ctx.globalAlpha = Math.max(.35, 1 - Math.abs(bz) / 3);
-      ctx.beginPath(); ctx.arc(X(bx), Y(by), 2.2, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(bx), Y(by), fr, 0, 7); ctx.fill();
     }
     ctx.globalAlpha = 1;
     const kage = (pf2 - d.kill) * SIM.dt;
     if (kage < 0.12) {
+      // Pinned to where the break-up happened, like the burst flash — a ring
+      // that chased the falling wreck would mark the wrong place.
+      const kx = d.dx[d.nPre + d.kill], ky = d.dy[d.nPre + d.kill];
       ctx.globalAlpha = (1 - kage / 0.12) * 0.7;
       ctx.strokeStyle = C("--status-critical"); ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(X(d.dx[f]), Y(d.dy[f]), 8 + kage * 260 * sc / 40, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(X(kx), Y(ky), 8 + kage * 260 * sc / 40, 0, 7); ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
 
   // Drone: hit ring + quad glyph. Once downed it tumbles and loses two arms.
   const DX = X(d.dx[f]), DY = Y(d.dy[f]);
-  if (!downed) {
-    ctx.strokeStyle = C("--series-2"); ctx.globalAlpha = .5; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(DX, DY, P.rhit * sc, 0, 7); ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
+  // Keep the hit ring drawn after the kill, just dimmer — gumballs go on
+  // accreting onto the wreck, so hiding the volume they accrete into would
+  // leave the stuck counter climbing against nothing the user can see.
+  ctx.strokeStyle = C("--series-2"); ctx.globalAlpha = downed ? .22 : .5; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(DX, DY, P.rhit * sc, 0, 7); ctx.stroke();
+  ctx.globalAlpha = 1;
   const body = Math.max(3, P.rhit * sc * 0.34), arm = Math.max(6, P.rhit * sc * 0.8);
   ctx.save();
   ctx.translate(DX, DY);
@@ -1785,11 +1944,22 @@ function updateHud() {
   const pf = f - d.nPre;
   const downed = d.kill >= 0 && pf >= d.kill;
   const parts = [`t = ${(t * 1000).toFixed(0)} ms`];
-  if (d.burst < 0) parts.push(d.ground ? "no burst — round hit the ground" : "no burst — fuse never tripped");
+  if (d.burst < 0) {
+    // Three distinct failures, previously collapsed into two.
+    parts.push(d.ground ? "no burst — round hit the ground"
+             : d.trig >= 0 ? "no burst — fuse tripped but its delay outran the engagement"
+             : "no burst — fuse never tripped");
+  }
   else if (f < d.nPre) parts.push(`closing · ${sep.toFixed(2)} m to trigger at ${P.rfuse.toFixed(2)} m`);
   else parts.push(`BURST +${(pf * SIM.dt * 1000).toFixed(0)} ms`);
   if (downed) parts.push(`✗ DRONE DOWN at burst +${(d.kill * SIM.dt * 1000).toFixed(0)} ms — falling`);
-  else if (d.burst >= 0 && f >= d.nPre && d.kill < 0 && pf > d.nPost * 0.6) parts.push("drone flew through clean");
+  else if (d.kill < 0 && pf >= d.nPost - 1) {
+    // Only claim a clean pass if the shell actually overtook the drone. If the
+    // window simply ran out while the shell was still expanding, say that —
+    // reporting it as a miss would be a false negative.
+    parts.push(d.swept ? "shell swept past — no contact"
+                       : "window ended — shell still expanding, outcome unknown");
+  }
   const b = document.createElement("b");
   b.textContent = d.burst >= 0 && f >= d.nPre
     ? `${SIM._nStuck || 0} / ${d.M} stuck` + (d.total_N > d.M ? ` (of ${d.total_N.toLocaleString()})` : "")
@@ -1921,7 +2091,16 @@ function scheduleSim() {
     const apply = v => {
       P[p.k] = v; num.value = v; rng.value = v;
       chipEls.forEach(([b, pv]) => b.setAttribute("aria-pressed", String(Math.abs(pv - v) < 1e-9)));
-      render();
+      if (p.simOnly) {
+        // These feed only the break-up animation. A full render() would re-run
+        // the range sweep (65 trajectory solves, each one an optimalTheta search
+        // in "optimal elevation" mode) and 400 Monte Carlo shots to produce
+        // byte-identical output.
+        renderTargetPanel();
+        scheduleSim();
+      } else {
+        render();
+      }
     };
 
     // Standard sphere-packing regimes, so nobody has to look them up.
@@ -1945,12 +2124,13 @@ function scheduleSim() {
     boxes[p.g] = box;
   });
 
-  // Derived payload read-out, parked under the inputs that produce it.
-  if (boxes["Projectile"]) {
+  // Derived read-outs, parked under the inputs that produce them.
+  [["Projectile", "derived"], ["Target", "derivedTarget"]].forEach(([g, id]) => {
+    if (!boxes[g]) return;
     const d = document.createElement("div");
-    d.className = "derived"; d.id = "derived";
-    boxes["Projectile"].appendChild(d);
-  }
+    d.className = "derived"; d.id = id;
+    boxes[g].appendChild(d);
+  });
 })();
 
 function wireTableToggle(btnId, wrapId) {
